@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! What needs GTK running: sizes, toasts, and what a dialog holds back. GTK is used from one thread only, so this is
+//! What needs GTK running: sizes, toasts, dialogs, a split's divider, banners and the app's stylesheet priority. GTK is used from one thread only, so this is
 //! one test. It needs a broadway display, which shows nothing: GTK on the desktop the tests are run from would read
 //! that desktop's settings. So `cargo test` lists it as ignored, and `dev/gtk-tests.sh` runs it on a display of its
 //! own.
@@ -8,7 +8,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use gtk::{glib, prelude::*};
 
-use crate::{Dialog, Shell, Split, Toast};
+use crate::{Banner, Dialog, Shell, Split, Toast};
 
 #[test]
 #[ignore = "needs a broadway display: dev/gtk-tests.sh"]
@@ -23,6 +23,11 @@ fn with_gtk() {
     a_toast_with_a_button_stays_and_each_says_when_it_goes();
     a_dialog_holds_back_the_windows_shortcuts_until_it_closes();
     a_dialog_with_text_has_a_width_of_its_own();
+    a_response_can_leave_the_dialog_open();
+    a_resizable_split_keeps_its_sidebar_within_its_limits();
+    a_banner_has_an_icon_and_a_button_of_either_kind();
+    // Last: the theme styles every widget made after it.
+    an_app_provider_at_app_priority_is_above_the_reset();
 }
 
 fn wrapping(text: &str) -> gtk::Label {
@@ -222,5 +227,129 @@ fn a_dialog_with_text_has_a_width_of_its_own() {
     assert!(
         natural_width(&bare).1 < 100,
         "a dialog of the app's widget alone is as wide as the widget"
+    );
+}
+
+fn a_response_can_leave_the_dialog_open() {
+    let window = gtk::Window::new();
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let shell = Shell::new(&window, &content);
+    let dialog = Dialog::new(Some("Sync log"), None);
+    dialog.add_response("clear", "Clear");
+    dialog.add_response("close", "Close");
+    dialog.set_response_closes("clear", false);
+    dialog.set_close_response("close");
+    let said = Rc::new(RefCell::new(Vec::new()));
+    dialog.connect_response({
+        let said = said.clone();
+        move |_, id| said.borrow_mut().push(id.to_owned())
+    });
+    dialog.present(&content);
+    dialog.click("clear");
+    assert!(shell.dialog_open(), "Clear leaves it open");
+    dialog.click("close");
+    assert!(!shell.dialog_open());
+    assert_eq!(*said.borrow(), ["clear", "close"]);
+    // The close response closes whatever the others do, and turned back on a response closes again.
+    dialog.set_response_closes("clear", true);
+    dialog.present(&content);
+    dialog.click("clear");
+    assert!(!shell.dialog_open());
+    dialog.set_response_closes("close", false);
+    dialog.present(&content);
+    dialog.close();
+    assert!(
+        !shell.dialog_open(),
+        "Escape closes, even with a close response that would not"
+    );
+    assert_eq!(*said.borrow(), ["clear", "close", "clear", "close"]);
+}
+
+fn a_resizable_split_keeps_its_sidebar_within_its_limits() {
+    let sidebar = gtk::Label::new(Some("list"));
+    let content = gtk::Label::new(Some("content"));
+    let split = Split::new(&sidebar, &content, (240, 360), Some(600));
+    split.set_resizable(true);
+    let divider = split.widget.last_child().unwrap();
+    assert!(divider.has_css_class("om-divider") && divider.is_focusable());
+    let lay_out = |width| {
+        split.widget.measure(gtk::Orientation::Horizontal, -1);
+        split.widget.allocate(width, 600, -1, None);
+    };
+    lay_out(1200);
+    assert_eq!(split.sidebar_width(), 300, "a quarter until a width is set");
+    split.set_sidebar_width(500);
+    lay_out(1200);
+    assert_eq!(split.sidebar_width(), 360, "no more than the most");
+    split.set_sidebar_width(280);
+    lay_out(1200);
+    assert_eq!((split.sidebar_width(), sidebar.width()), (280, 280));
+    let edge = divider
+        .compute_point(&split.widget, &gtk::graphene::Point::zero())
+        .unwrap()
+        .x() as i32;
+    assert_eq!(edge + divider.width() / 2, 280, "the divider is centred on the edge");
+    // Narrower, the content keeps what it needs, down to the sidebar's least.
+    let needs = content.measure(gtk::Orientation::Horizontal, -1).0;
+    lay_out(280 + needs - 10);
+    assert_eq!(sidebar.width(), 270);
+    lay_out(200);
+    assert_eq!(sidebar.width(), 240);
+    assert_eq!(split.sidebar_width(), 280, "the width to save is the one chosen");
+    // With the sidebar put away there is no edge to drag.
+    split.set_show_sidebar(false);
+    assert!(!divider.is_child_visible());
+    split.set_show_sidebar(true);
+    assert!(divider.is_child_visible());
+    split.set_resizable(false);
+    assert_eq!(
+        split.widget.last_child().as_ref(),
+        Some(content.parent().unwrap().upcast_ref())
+    );
+}
+
+fn a_banner_has_an_icon_and_a_button_of_either_kind() {
+    let banner = Banner::new("Not linked to iCloud yet.", Some("Clone…"));
+    let content = banner.widget.child().unwrap();
+    let icon = content.first_child().and_downcast::<gtk::Image>().unwrap();
+    let button = content.last_child().and_downcast::<gtk::Button>().unwrap();
+    assert!(!icon.is_visible(), "no icon until one is set");
+    banner.set_icon(Some(crate::icons::name::CLOUD), "accent");
+    assert!(icon.is_visible() && icon.has_css_class("accent"));
+    banner.set_icon(Some(crate::icons::name::WARNING), "warning");
+    assert!(icon.has_css_class("warning") && !icon.has_css_class("accent"));
+    banner.set_button_suggested(true);
+    banner.set_button_enabled(false);
+    assert!(button.has_css_class("suggested-action") && !button.is_sensitive());
+    banner.set_icon(None, "");
+    assert!(!icon.is_visible());
+}
+
+fn an_app_provider_at_app_priority_is_above_the_reset() {
+    let display = gtk::gdk::Display::default().unwrap();
+    crate::Theme::install(&display, ".om-test-app-css { min-width: 50px; }");
+    let provider = |css: &str, priority: u32| {
+        let provider = gtk::CssProvider::new();
+        provider.load_from_string(css);
+        gtk::style_context_add_provider_for_display(&display, &provider, priority);
+    };
+    provider(".om-test-app-css { min-width: 120px; }", crate::APP_PRIORITY);
+    provider(
+        ".om-test-application { min-width: 120px; }",
+        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+    );
+    let width = |class: &str| {
+        let widget = gtk::Box::builder().css_classes([class]).build();
+        widget.measure(gtk::Orientation::Horizontal, -1).0
+    };
+    assert_eq!(
+        width("om-test-app-css"),
+        120,
+        "added later at the same priority, it wins over the app's stylesheet"
+    );
+    assert_eq!(
+        width("om-test-application"),
+        0,
+        "the reset unsets what GTK's application priority sets"
     );
 }

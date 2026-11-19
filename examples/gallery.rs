@@ -3,12 +3,12 @@
 //!
 //!   OMUI_GALLERY_PAGE=controls|icons|states|dialogs|inputs|menus|views|split|nav|tabs|rows|avatars
 //!                                             the page to open on, with the keyboard in it
-//!   OMUI_GALLERY_OPEN=confirm|send|rename|upload|stop|tall|alert|about|window|dropdown|menu|popover|contact|
-//!                     recovery|settings|push|toasts
+//!   OMUI_GALLERY_OPEN=confirm|send|rename|upload|stop|tall|alert|about|window|log|dropdown|menu|popover|
+//!                     contact|recovery|settings|push|toasts
 //!                                             what to open on its page, as a click or an action would
 //!   OMUI_GALLERY_TRACE=1                      print each focus change, dialog answer, shortcut, toast dismissed,
-//!                                             change of a split, a stack of pages or an expander, and the window's
-//!                                             width once it is laid out (dev/keys.sh reads them)
+//!                                             change of a split, a stack of pages or an expander, a divider moved,
+//!                                             and the window's width once it is laid out (dev/keys.sh reads them)
 //!   OMUI_SHOT=<file.png>                      with feature `dev`: write the window through `omui::dev::shot`
 
 use std::{cell::Cell, rc::Rc};
@@ -466,6 +466,19 @@ fn controls() -> gtk::ScrolledWindow {
         "and monospace returns to the interface font.",
         "monospace",
     ));
+    // A stylesheet the app changes as it runs, as a reader's zoom: at omui's APP_PRIORITY, above the reset.
+    let zoom = gtk::CssProvider::new();
+    gtk::style_context_add_provider_for_display(&reader.display(), &zoom, omui::APP_PRIORITY);
+    let size = Rc::new(Cell::new(100));
+    for (icon, tooltip, step) in [(name::ZOOM_OUT, "Smaller", -10), (name::ZOOM_IN, "Larger", 10)] {
+        let button = omui::icon_button(icon, tooltip);
+        let (zoom, size) = (zoom.clone(), size.clone());
+        button.connect_clicked(move |_| {
+            size.set((size.get() + step).clamp(70, 200));
+            zoom.load_from_string(&format!(".reader {{ font-size: {}%; }}", size.get()));
+        });
+        reader.append(&button);
+    }
     column.append(&reader);
     column.append(&row(&[
         omui::label("error", "error").upcast_ref(),
@@ -598,6 +611,8 @@ fn states(shell: &Rc<Shell>, openers: &mut Openers) -> gtk::Box {
         "You are signed out of iCloud. Notes will not sync until you sign in.",
         Some("Sign in"),
     );
+    banner.set_icon(Some(name::WARNING), "warning");
+    banner.set_button_suggested(true);
     let later = banner.add_button("Later", false);
     banner.set_revealed(true);
     banner.connect_button_clicked({
@@ -613,6 +628,13 @@ fn states(shell: &Rc<Shell>, openers: &mut Openers) -> gtk::Box {
         move |_| banner.set_reveal_child(false)
     });
     column.append(&banner.widget);
+    // Notes' while a sync runs: the button that would start another is disabled.
+    let link = Banner::new("This folder is not linked to iCloud yet.", Some("Clone…"));
+    link.set_icon(Some(name::CLOUD), "accent");
+    link.set_button_suggested(true);
+    link.set_button_enabled(false);
+    link.set_revealed(true);
+    column.append(&link.widget);
 
     let empty = EmptyState::new(
         Some(name::SEARCH),
@@ -938,12 +960,49 @@ fn dialogs(app: &gtk::Application, openers: &mut Openers) -> gtk::ScrolledWindow
             )
         }),
     );
+    // Notes' sync log: Clear empties it and the dialog stays open.
+    let log = opener(
+        "log",
+        "Sync log…",
+        Rc::new({
+            let said = said.clone();
+            move |button| {
+                let dialog = Dialog::new(Some("Sync log"), None);
+                let text = gtk::TextView::builder()
+                    .editable(false)
+                    .monospace(true)
+                    .wrap_mode(gtk::WrapMode::WordChar)
+                    .build();
+                text.buffer()
+                    .set_text("09:00 pull: 3 notes changed\n09:00 push: 1 note sent\n09:15 pull: up to date");
+                dialog.set_extra_child(Some(gtk::Frame::builder().child(&text).build().upcast_ref()));
+                dialog.set_content_size(460, -1);
+                dialog.add_response("clear", "C_lear");
+                dialog.add_response("close", "_Close");
+                dialog.set_response_closes("clear", false);
+                dialog.set_default_response("close");
+                dialog.set_close_response("close");
+                dialog.connect_response({
+                    let said = said.clone();
+                    move |dialog, id| {
+                        if id == "clear" {
+                            text.buffer().set_text("");
+                            dialog.set_response_enabled("clear", false);
+                        }
+                        said(id);
+                    }
+                });
+                dialog.present(button);
+            }
+        }),
+    );
     openers.push(("stop", "dialogs", {
         let button = uploading.clone().downcast::<gtk::Button>().expect("a button");
         Rc::new(move || upload(&button).emit_clicked())
     }));
     column.append(&row(&[&confirm, &send, &rename, &uploading]));
     column.append(&row(&[&tall, &alert, &about, &window]));
+    column.append(&row(&[&log]));
     column.append(&answer);
     scroll
 }
@@ -1309,7 +1368,17 @@ fn contacts(shell: &Rc<Shell>, openers: &mut Openers) -> gtk::Box {
             .build(),
     );
 
-    let split = Split::new(&sidebar, &content, (240, 320), Some(600));
+    // The list's width is dragged, or moved from the keyboard, within its limits; an app saves `sidebar_width` and
+    // restores it as this does.
+    let split = Split::new(&sidebar, &content, (240, 360), Some(600));
+    split.set_resizable(true);
+    split.set_sidebar_width(280);
+    let width = Cell::new(split.sidebar_width());
+    split.connect_changed(move |split| {
+        if width.replace(split.sidebar_width()) != split.sidebar_width() {
+            trace(&format!("divider: {}", split.sidebar_width()));
+        }
+    });
     back.set_visible(false);
     split.connect_changed({
         let back = back.downgrade();

@@ -587,6 +587,16 @@ button.sidebar-footer:hover { background: alpha(@om_text, 0.06); color: @om_text
 /* -------------------------------------------------------------------------------------------- panes and pages -- */
 /* A collapsed split shows one pane across its whole width, so the sidebar has no neighbour to be ruled off from. */
 .om-split.collapsed .sidebar { border-right: none; }
+/* A resizable split's divider (layout.rs): a strip over the sidebar's border, drawn as an accent line while it is
+   pointed at, dragged or has the keyboard. */
+.om-split > separator.om-divider { background: none; min-width: 7px; }
+.om-split > separator.om-divider:hover, .om-split > separator.om-divider.dragging,
+.om-split > separator.om-divider:focus-visible {
+  background-image: linear-gradient(@om_accent, @om_accent);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 2px 100%;
+}
 
 /* What `page` scrolls: groups one under another. */
 .page { border-spacing: 18px; padding: 24px 16px; }

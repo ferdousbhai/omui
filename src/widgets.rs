@@ -176,6 +176,7 @@ pub fn spinner() -> gtk::Spinner {
 pub struct Banner {
     pub widget: gtk::Revealer,
     content: gtk::Box,
+    icon: gtk::Image,
     title: gtk::Label,
     button: gtk::Button,
 }
@@ -188,9 +189,12 @@ impl Banner {
                 .transition_type(gtk::RevealerTransitionType::SlideDown)
                 .build(),
             content: gtk::Box::builder().css_classes(["banner"]).build(),
+            icon: icons::icon(""),
             title: gtk::Label::builder().xalign(0.0).wrap(true).hexpand(true).build(),
             button: gtk::Button::new(),
         };
+        this.icon.set_visible(false);
+        this.content.append(&this.icon);
         this.content.append(&this.title);
         this.content.append(&this.button);
         this.widget.set_child(Some(&this.content));
@@ -203,9 +207,29 @@ impl Banner {
         self.title.set_label(title);
     }
 
+    /// An icon before the title, tinted by `class` (`accent`, `warning`, `error`, `success`; the text's colour when
+    /// empty). None leaves it out.
+    pub fn set_icon(&self, icon: Option<&str>, class: &str) {
+        self.icon.set_icon_name(icon);
+        self.icon.set_visible(icon.is_some());
+        for tint in ["accent", "warning", "error", "success"] {
+            set_class(&self.icon, tint, tint == class);
+        }
+    }
+
     pub fn set_button_label(&self, label: Option<&str>) {
         self.button.set_label(label.unwrap_or_default());
         self.button.set_visible(label.is_some());
+    }
+
+    /// The banner's own button drawn as the action the banner asks for (`adw::BannerButtonStyle::Suggested`).
+    pub fn set_button_suggested(&self, on: bool) {
+        set_class(&self.button, "suggested-action", on);
+    }
+
+    /// A disabled button cannot be pressed: while what it starts is already running.
+    pub fn set_button_enabled(&self, on: bool) {
+        self.button.set_sensitive(on);
     }
 
     /// One more button, after those already there. The caller connects it.

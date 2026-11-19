@@ -19,6 +19,9 @@ const TABS_ICON_ONLY_BELOW: i32 = 700;
 /// The share of a wide [`Split`] its sidebar takes, within the limits it was given (libadwaita's default).
 const SIDEBAR_FRACTION: f64 = 0.25;
 
+/// How far Left and Right move a [`Split`]'s divider.
+const DIVIDER_STEP: i32 = 16;
+
 /// Tells `f` whether `widget` is narrower than `below_px`: once when it first has a width, then each time it crosses.
 /// `f` lives as long as the widget does, so it holds the widget itself, and whatever holds it, weakly.
 ///
@@ -184,13 +187,16 @@ mod imp {
         }
     }
 
-    /// Lays out the two panes of a [`Split`](super::Split): its widget's first child holds the sidebar and its last
-    /// the content. Which of them are on screen is the split's to say, by their child visibility; this gives them
-    /// their places, and tells the split when the width it was given calls for the other arrangement.
+    /// Lays out the two panes of a [`Split`](super::Split): its widget's first child holds the sidebar and its second
+    /// the content. A third, when there is one, is the divider, over the edge between them. Which of them are on
+    /// screen is the split's to say, by their child visibility; this gives them their places, and tells the split
+    /// when the width it was given calls for the other arrangement.
     #[derive(Default)]
     pub struct SplitLayout {
         /// The least and the most the sidebar gets beside the content.
         pub sidebar_width: Cell<(i32, i32)>,
+        /// The sidebar's width as the app set it or the divider was dragged to, in place of a share of the split.
+        pub chosen: Cell<Option<i32>>,
         pub collapse_below: Cell<Option<i32>>,
         /// Whether the last width called for one pane, and what to tell when that changes.
         pub collapsed: Cell<bool>,
@@ -199,7 +205,9 @@ mod imp {
 
     impl SplitLayout {
         fn panes(widget: &gtk::Widget) -> Option<(gtk::Widget, gtk::Widget)> {
-            widget.first_child().zip(widget.last_child())
+            let sidebar = widget.first_child()?;
+            let content = sidebar.next_sibling()?;
+            Some((sidebar, content))
         }
 
         /// The least the sidebar is beside the content: the app's limit, or what the sidebar itself needs.
@@ -207,13 +215,20 @@ mod imp {
             self.sidebar_width.get().0.max(minimum_width(sidebar))
         }
 
-        /// The sidebar's width in a split `width` wide: a share of it, within the limits, giving way to what the
+        /// The least and the most the sidebar can be in a split `width` wide: the limits, giving way to what the
         /// content needs.
-        fn sidebar(&self, sidebar: &gtk::Widget, content: &gtk::Widget, width: i32) -> i32 {
+        pub fn sidebar_limits(&self, sidebar: &gtk::Widget, content: &gtk::Widget, width: i32) -> (i32, i32) {
             let least = self.least_sidebar(sidebar);
-            let most = self.sidebar_width.get().1.max(least);
+            let most = self.sidebar_width.get().1.min(width - minimum_width(content));
+            (least, most.max(least))
+        }
+
+        /// The sidebar's width in a split `width` wide: the width chosen for it, else a share of the split, within
+        /// its limits.
+        pub fn sidebar(&self, sidebar: &gtk::Widget, content: &gtk::Widget, width: i32) -> i32 {
+            let (least, most) = self.sidebar_limits(sidebar, content, width);
             let share = (f64::from(width) * SIDEBAR_FRACTION) as i32;
-            share.clamp(least, most).min(width - minimum_width(content)).max(least)
+            self.chosen.get().unwrap_or(share).clamp(least, most)
         }
 
         /// Where each pane on screen goes in a split `width` wide: its left edge and its width, which is never
@@ -298,7 +313,15 @@ mod imp {
             let Some((sidebar, content)) = Self::panes(widget) else {
                 return;
             };
-            for (pane, x, pane_width) in self.places(&sidebar, &content, width) {
+            let places = self.places(&sidebar, &content, width);
+            if let Some(divider) = content.next_sibling() {
+                // Centred on the edge between the panes, over both; off the split while one pane is on screen.
+                let divider_width = minimum_width(&divider);
+                let edge = if places.len() == 2 { places[1].1 } else { -divider_width };
+                divider.measure(gtk::Orientation::Vertical, divider_width);
+                place(&divider, edge - divider_width / 2, divider_width, height, baseline);
+            }
+            for (pane, x, pane_width) in places {
                 // Never less than the pane needs at its width, for what does not fit to be cut off at the bottom
                 // rather than drawn over itself.
                 let least = pane.measure(gtk::Orientation::Vertical, pane_width).0;
@@ -444,6 +467,9 @@ macro_rules! weak_handle {
 /// content that is visible while [`Split::is_collapsed`]. A sidebar with a button that shows and hides it calls
 /// [`Split::set_show_sidebar`], and keeps the button in step from [`Split::connect_changed`].
 ///
+/// [`Split::set_resizable`] puts a divider between the panes that the pointer drags and the arrows move, within the
+/// sidebar's limits; [`Split::sidebar_width`] is the width to save, and [`Split::set_sidebar_width`] restores it.
+///
 /// The least height it asks for is the same at every width, so that a window keeps to a narrow tile: it is what the
 /// panes need with their text unwrapped, which is less than a narrow pane with wrapping text needs. A pane given less
 /// than it needs is cut off at the bottom, so text that must stay within reach in a short window goes in a
@@ -467,6 +493,8 @@ struct SplitState {
     show_content: Cell<bool>,
     /// What had the keyboard in the sidebar and in the content when each was last taken off screen with it.
     left_focus: [glib::WeakRef<gtk::Widget>; 2],
+    /// The divider of [`Split::set_resizable`], while there is one.
+    divider: RefCell<Option<gtk::Separator>>,
     /// While the handlers hear that the split collapsed or widened: what they ask for is put on screen once, after
     /// the last of them, with what the new width calls for.
     settling: Cell<bool>,
@@ -512,6 +540,7 @@ impl Split {
             show_sidebar: Cell::new(true),
             show_content: Cell::new(false),
             left_focus: Default::default(),
+            divider: RefCell::new(None),
             settling: Cell::new(false),
             changed: RefCell::default(),
         });
@@ -547,6 +576,7 @@ impl Split {
             }
         });
         widget.add_controller(keys);
+        widget.add_controller(divider_drag(&state));
         Self { widget, state }
     }
 
@@ -580,9 +610,122 @@ impl Split {
         self.state.show_sidebar.get()
     }
 
-    /// Runs `f` when the split collapses or widens, and when either pane is shown or put away.
+    /// Runs `f` when the split collapses or widens, when either pane is shown or put away, and when the divider has
+    /// been moved.
     pub fn connect_changed(&self, f: impl Fn(&Split) + 'static) {
         self.state.changed.borrow_mut().push(Rc::new(f));
+    }
+
+    /// A divider between the panes while both are on screen: dragged, or moved with Left and Right (Home and End go
+    /// to the limits), it sets the sidebar's width within the least and the most [`Split::new`] was given.
+    pub fn set_resizable(&self, on: bool) {
+        let state = &self.state;
+        if state.divider.borrow().is_some() == on {
+            return;
+        }
+        if let Some(divider) = state.divider.take() {
+            divider.unparent();
+            return;
+        }
+        let divider = gtk::Separator::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .css_classes(["om-divider"])
+            .focusable(true)
+            .cursor(&gdk::Cursor::from_name("col-resize", None).expect("GTK's cursor names"))
+            .build();
+        divider.update_property(&[gtk::accessible::Property::Label("Sidebar width")]);
+        let keys = gtk::EventControllerKey::new();
+        keys.connect_key_pressed({
+            let state = Rc::downgrade(state);
+            move |_, key, _, modifiers| {
+                let Some(split) = state.upgrade().as_ref().and_then(Split::of) else {
+                    return glib::Propagation::Proceed;
+                };
+                if modifiers.intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::ALT_MASK) {
+                    return glib::Propagation::Proceed;
+                }
+                let (least, most) = split.sidebar_limits();
+                let width = split.shown_sidebar_width();
+                let to = match key {
+                    gdk::Key::Left | gdk::Key::KP_Left => width - DIVIDER_STEP,
+                    gdk::Key::Right | gdk::Key::KP_Right => width + DIVIDER_STEP,
+                    gdk::Key::Home | gdk::Key::KP_Home => least,
+                    gdk::Key::End | gdk::Key::KP_End => most,
+                    _ => return glib::Propagation::Proceed,
+                };
+                split.resize(to);
+                emit(&split.state.changed, &split);
+                glib::Propagation::Stop
+            }
+        });
+        divider.add_controller(keys);
+        // Last, so that it is drawn over both panes and the pointer finds it there.
+        divider.insert_before(&self.widget, gtk::Widget::NONE);
+        state.divider.replace(Some(divider));
+        self.apply();
+    }
+
+    /// The sidebar's width to save: what the divider was moved to or [`Split::set_sidebar_width`] set, even while a
+    /// narrower window gives it less; else the share of the split it has.
+    pub fn sidebar_width(&self) -> i32 {
+        self.layout()
+            .imp()
+            .chosen
+            .get()
+            .unwrap_or_else(|| self.shown_sidebar_width())
+    }
+
+    /// The sidebar's width beside the content at the split's width now.
+    fn shown_sidebar_width(&self) -> i32 {
+        let (sidebar, content) = (&self.state.sidebar, &self.state.content);
+        self.layout().imp().sidebar(sidebar, content, self.widget.width())
+    }
+
+    /// The sidebar's width, kept within the limits [`Split::new`] was given: a width saved from
+    /// [`Split::sidebar_width`] when the window last closed.
+    pub fn set_sidebar_width(&self, width: i32) {
+        let (least, most) = self.layout().imp().sidebar_width.get();
+        self.layout()
+            .imp()
+            .chosen
+            .set(Some(width.clamp(least, most.max(least))));
+        self.widget.queue_resize();
+        self.sync_divider();
+    }
+
+    fn layout(&self) -> SplitLayout {
+        self.widget
+            .layout_manager()
+            .and_downcast()
+            .expect("a split's layout is its own")
+    }
+
+    fn sidebar_limits(&self) -> (i32, i32) {
+        let (sidebar, content) = (&self.state.sidebar, &self.state.content);
+        self.layout()
+            .imp()
+            .sidebar_limits(sidebar, content, self.widget.width())
+    }
+
+    /// Sets the sidebar's width from the divider, within what the split's width allows now: a drag past a limit then
+    /// turns back at once.
+    fn resize(&self, width: i32) {
+        let (least, most) = self.sidebar_limits();
+        self.layout().imp().chosen.set(Some(width.clamp(least, most)));
+        self.widget.queue_resize();
+        self.sync_divider();
+    }
+
+    /// What a screen reader says of the divider: the sidebar's width and its limits.
+    fn sync_divider(&self) {
+        if let Some(divider) = self.state.divider.borrow().as_ref() {
+            let (least, most) = self.sidebar_limits();
+            divider.update_property(&[
+                gtk::accessible::Property::ValueMin(f64::from(least)),
+                gtk::accessible::Property::ValueMax(f64::from(most)),
+                gtk::accessible::Property::ValueNow(f64::from(self.shown_sidebar_width())),
+            ]);
+        }
     }
 
     /// Puts on screen the panes the state calls for, by their holders' child visibility: a pane taken off still
@@ -602,6 +745,15 @@ impl Split {
         let leaving = panes
             .iter()
             .position(|(pane, stays)| !stays && focus_inside(pane).is_some());
+        if let Some(divider) = state.divider.borrow().as_ref() {
+            // The divider leaves with either pane; the keyboard on it goes to the pane that stays.
+            let staying = sidebar && content;
+            if !staying && focus_inside(divider.upcast_ref()).is_some() {
+                let stays = if sidebar { &state.sidebar } else { &state.content };
+                stays.child_focus(gtk::DirectionType::TabForward);
+            }
+            divider.set_child_visible(staying);
+        }
         if let Some(leaving) = leaving {
             state.left_focus[leaving].set(focus_inside(panes[leaving].0).as_ref());
         }
@@ -613,6 +765,54 @@ impl Split {
             give_focus(panes[other].0, &state.left_focus[other]);
         }
     }
+}
+
+/// Dragging the divider of [`Split::set_resizable`]. It is the split's, not the divider's: a drag's offsets are in
+/// its widget's coordinates, and the divider moves under the pointer.
+fn divider_drag(state: &Rc<SplitState>) -> gtk::GestureDrag {
+    let drag = gtk::GestureDrag::new();
+    // The sidebar's width as the drag began; none while the pointer went down elsewhere.
+    let from = Rc::new(Cell::new(None));
+    drag.connect_drag_begin({
+        let (state, from) = (Rc::downgrade(state), from.clone());
+        move |drag, x, y| {
+            let split = state.upgrade().as_ref().and_then(Split::of);
+            let divider = split.as_ref().and_then(|split| split.state.divider.borrow().clone());
+            let (Some(split), Some(divider)) = (split, divider) else {
+                return;
+            };
+            if split.widget.pick(x, y, gtk::PickFlags::DEFAULT).as_ref() != Some(divider.upcast_ref()) {
+                drag.set_state(gtk::EventSequenceState::Denied);
+                return;
+            }
+            drag.set_state(gtk::EventSequenceState::Claimed);
+            from.set(Some(split.shown_sidebar_width()));
+            divider.add_css_class("dragging");
+        }
+    });
+    drag.connect_drag_update({
+        let (state, from) = (Rc::downgrade(state), from.clone());
+        move |_, dx, _| {
+            if let (Some(split), Some(from)) = (state.upgrade().as_ref().and_then(Split::of), from.get()) {
+                split.resize(from + dx as i32);
+            }
+        }
+    });
+    drag.connect_drag_end({
+        let state = Rc::downgrade(state);
+        move |_, _, _| {
+            let Some(split) = state.upgrade().as_ref().and_then(Split::of) else {
+                return;
+            };
+            if from.take().is_some() {
+                if let Some(divider) = split.state.divider.borrow().as_ref() {
+                    divider.remove_css_class("dragging");
+                }
+                emit(&split.state.changed, &split);
+            }
+        }
+    });
+    drag
 }
 
 /// Pages one over another, the last pushed on top (`adw::NavigationView`). Escape and Alt+Left go back a page,

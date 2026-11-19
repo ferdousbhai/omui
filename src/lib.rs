@@ -22,7 +22,7 @@ pub use icons::{data_uri, icon, icon_button, icon_menu_button};
 pub use layout::{Nav, Split, WeakNav, WeakSplit, clamp, on_narrow, page, tabs};
 pub use rows::{ExpanderRow, Group, Row, combo_row, entry_row, password_row, switch_row};
 pub use shell::{Shell, Title, Toast, claim_titlebar, header, header_without_title};
-pub use theme::{Theme, Tokens, blend, omarchy_state_dir};
+pub use theme::{APP_PRIORITY, Theme, Tokens, blend, omarchy_state_dir};
 pub use widgets::{Banner, EmptyState, avatar, badge, clear, label, set_class, sidebar_row, single_tab_stop, spinner};
 
 /// The application `id`, named `name` as its command line is (logs, X11 WM_CLASS) and shown as `title`. Its windows

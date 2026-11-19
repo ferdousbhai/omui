@@ -58,6 +58,8 @@ check start 'Delete Delete ctrl+u F5 Escape F5' \
 # A dialog that cannot be closed ignores Escape. A dialog over it takes the keyboard, and gives it back.
 check upload 'Escape Tab Return Tab Return' \
   'focus: row|focus: Stop|focus: Stop|focus: _Cancel|focus: Stop|focus: Stop|focus: row'
+# A response that leaves the dialog open: Clear answers, and Escape then closes it.
+check log 'alt+l Escape' 'focus: row|focus: textview|answer: clear|focus: row|answer: close'
 # In a dialog taller than the window the focus starts in the list that scrolls.
 check tall 'Escape' 'focus: row|focus: checkbutton Calendar 1|focus: row|answer: done'
 # A window without a shell gets a modal window, with the same keys. The gallery is tiled beside the editor window,
@@ -103,9 +105,13 @@ check page:nav 'Return Tab Tab Tab Tab Tab Tab Tab Return Tab Return' \
 # The gallery's sidebar is one Tab stop, so Tab does not show each page it passes: on to its footer, then the page.
 check start 'Tab Tab shift+ISO_Left_Tab shift+ISO_Left_Tab Down' \
   'focus: row|focus: button Connected|focus: Default|focus: button Connected|focus: row|focus: row'
-# A split wide enough for both panes: Tab goes through the sidebar and on into the content.
-check page:split 'Tab Down Return Tab Tab Tab Tab Tab Tab' \
-  'focus: row|focus: text Search contacts|focus: row Ada Lovelace|focus: row Grace Hopper|split: contacts wide both|focus: row Katherine Johnson|focus: row Linus|focus: row Margaret Hamilton|focus: row No name|focus: switch Mirror contacts between iCloud and Google|focus: Edit'
+# A split wide enough for both panes: Tab goes through the sidebar, its divider, and on into the content.
+check page:split 'Tab Down Return Tab Tab Tab Tab Tab Tab Tab' \
+  'focus: row|focus: text Search contacts|focus: row Ada Lovelace|focus: row Grace Hopper|split: contacts wide both|focus: row Katherine Johnson|focus: row Linus|focus: row Margaret Hamilton|focus: row No name|focus: switch Mirror contacts between iCloud and Google|focus: separator|focus: Edit'
+# The divider: Right and Left move it a step, Home and End to the sidebar's least and most, and Right at the most
+# stays there.
+TRACE=divider check page:split 'Tab Tab Tab Tab Tab Tab Tab Tab Right Left Left Home End Right' \
+  'divider: 296|divider: 280|divider: 264|divider: 240|divider: 360'
 # The sidebar put away and brought back from its button in the header bar.
 check start 'shift+ISO_Left_Tab shift+ISO_Left_Tab shift+ISO_Left_Tab shift+ISO_Left_Tab shift+ISO_Left_Tab Return Return' \
   'focus: row|focus: button|focus: New|focus: Search|focus: Back|focus: Sidebar|split: window wide content|split: window wide both'

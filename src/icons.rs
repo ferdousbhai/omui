@@ -12,12 +12,14 @@ pub(crate) const RESOURCE_PATH: &str = "/io/github/ferdousbhai/omui/icons";
 /// Icon names, for [`icon`], [`icon_button`], [`data_uri`] and `gtk::Image::from_icon_name`.
 pub mod name {
     pub const ADD: &str = "om-plus-symbolic";
+    pub const ATTACH: &str = "om-paperclip-symbolic";
     pub const BACK: &str = "om-chevron-left-symbolic";
     pub const BATTERY_CHARGING: &str = "om-battery-charging-symbolic";
     pub const BATTERY_EMPTY: &str = "om-battery-symbolic";
     pub const BATTERY_FULL: &str = "om-battery-full-symbolic";
     pub const BATTERY_LOW: &str = "om-battery-low-symbolic";
     pub const BATTERY_MEDIUM: &str = "om-battery-medium-symbolic";
+    pub const BOLD: &str = "om-bold-symbolic";
     pub const BOOK: &str = "om-book-open-symbolic";
     pub const CALENDAR: &str = "om-calendar-symbolic";
     pub const CAMERA: &str = "om-camera-symbolic";
@@ -25,9 +27,11 @@ pub mod name {
     pub const CHAT: &str = "om-message-circle-symbolic";
     pub const CHECK: &str = "om-check-symbolic";
     pub const CHECKED: &str = "om-square-check-symbolic";
+    pub const CIRCLE: &str = "om-circle-symbolic";
     pub const CLOCK: &str = "om-clock-symbolic";
     pub const CLOSE: &str = "om-x-symbolic";
     pub const CLOUD: &str = "om-cloud-symbolic";
+    pub const COMPOSE: &str = "om-square-pen-symbolic";
     pub const COMPUTER: &str = "om-monitor-symbolic";
     pub const COPY: &str = "om-copy-symbolic";
     pub const DELETE: &str = "om-trash-2-symbolic";
@@ -47,13 +51,16 @@ pub mod name {
     pub const HIDE: &str = "om-eye-off-symbolic";
     pub const IMAGE: &str = "om-image-symbolic";
     pub const INFO: &str = "om-info-symbolic";
+    pub const ITALIC: &str = "om-italic-symbolic";
     pub const KEY: &str = "om-key-round-symbolic";
+    pub const LINK: &str = "om-link-symbolic";
     pub const LOCATE: &str = "om-locate-fixed-symbolic";
     pub const LOCATION: &str = "om-map-pin-symbolic";
     pub const LOCK: &str = "om-lock-symbolic";
     pub const MAIL: &str = "om-mail-symbolic";
     pub const MENU: &str = "om-menu-symbolic";
     pub const MORE: &str = "om-ellipsis-vertical-symbolic";
+    pub const NEW_FOLDER: &str = "om-folder-plus-symbolic";
     pub const OFFLINE: &str = "om-cloud-off-symbolic";
     pub const OK: &str = "om-circle-check-symbolic";
     pub const PHONE: &str = "om-smartphone-symbolic";
@@ -82,12 +89,14 @@ pub mod name {
     /// Every bundled icon.
     pub const ALL: &[&str] = &[
         ADD,
+        ATTACH,
         BACK,
         BATTERY_CHARGING,
         BATTERY_EMPTY,
         BATTERY_FULL,
         BATTERY_LOW,
         BATTERY_MEDIUM,
+        BOLD,
         BOOK,
         CALENDAR,
         CAMERA,
@@ -95,9 +104,11 @@ pub mod name {
         CHAT,
         CHECK,
         CHECKED,
+        CIRCLE,
         CLOCK,
         CLOSE,
         CLOUD,
+        COMPOSE,
         COMPUTER,
         COPY,
         DELETE,
@@ -117,13 +128,16 @@ pub mod name {
         HIDE,
         IMAGE,
         INFO,
+        ITALIC,
         KEY,
+        LINK,
         LOCATE,
         LOCATION,
         LOCK,
         MAIL,
         MENU,
         MORE,
+        NEW_FOLDER,
         OFFLINE,
         OK,
         PHONE,

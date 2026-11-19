@@ -11,7 +11,7 @@ theming approach it follows.
 
 ```toml
 [dependencies]
-omui = { git = "https://github.com/ferdousbhai/omui", rev = "<40-hex>" } # v0.4.0
+omui = { git = "https://github.com/ferdousbhai/omui", rev = "<40-hex>" } # v0.5.0
 ```
 
 Building needs `glib-compile-resources` (on Arch it is part of `glib2`).
@@ -43,21 +43,21 @@ A packaged app carries the Strata and Lucide notices with it, since its binary h
 the Lucide icons: ship [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)'s two entries and the texts under
 `data/licenses/` among the app's own notices.
 
-## What is in 0.4
+## What is in 0.5
 
 | | |
 |---|---|
 | `application`, `main`, `background` | One-window application with the theme installed; a binary that is a window with no arguments and a command line with some; work on a thread with the result on the main loop |
-| `Theme`, `Tokens`, `blend`, `omarchy_state_dir` | The installed look, its colours, and a listener for what CSS cannot reach |
-| `icons::name::*`, `icon`, `icon_button`, `data_uri` | 67 bundled Lucide icons as GTK symbolic icons |
+| `Theme`, `Tokens`, `blend`, `omarchy_state_dir`, `APP_PRIORITY` | The installed look, its colours, a listener for what CSS cannot reach, and where an app's own stylesheets go |
+| `icons::name::*`, `icon`, `icon_button`, `data_uri` | 74 bundled Lucide icons as GTK symbolic icons |
 | `icon_menu_button` | A menu button drawn as an icon button: a header bar's main menu |
 | `Shell`, `Toast`, `header`, `header_without_title`, `Title`, `claim_titlebar` | The window's overlay with toasts, and its header bar |
 | `Dialog`, `WeakDialog`, `confirm`, `about`, `dialog_open`, `Appearance` | A dialog drawn inside its window, the question most of them are, an About dialog, and whether one is open |
-| `Split`, `Nav`, `tabs`, `on_narrow` | A sidebar beside content that becomes one pane in a narrow window; pages pushed one over another; the pages of a stack as tabs; a widget's width crossing a threshold |
+| `Split`, `Nav`, `tabs`, `on_narrow` | A sidebar beside content that becomes one pane in a narrow window, with a divider to drag if the app wants one; pages pushed one over another; the pages of a stack as tabs; a widget's width crossing a threshold |
 | `clamp`, `page` | A child kept to a readable width; a scrolling column of groups |
 | `Group`, `Row`, `entry_row`, `password_row`, `switch_row`, `combo_row`, `ExpanderRow` | A titled, bordered list and the rows of a settings page or a form |
 | `label`, `badge`, `avatar`, `spinner`, `sidebar_row`, `single_tab_stop`, `clear`, `set_class` | Small builders; a list that Tab passes in one step |
-| `Banner`, `EmptyState` | A message bar; what an empty page or list shows |
+| `Banner`, `EmptyState` | A message bar with an icon and buttons; what an empty page or list shows |
 | `dev::shot` (feature `dev`) | A widget written to a PNG, for before-and-after pictures |
 
 With these an app that was built on libadwaita needs none of it: each has the methods of the libadwaita widget it
@@ -78,7 +78,9 @@ In CSS the colours are GTK named colours, tinted only with `alpha()`:
 `@om_highlight` `@om_border`
 
 App stylesheets use these and no hex, so they follow every theme. Stylesheets are layered above GTK's user priority:
-a reset, GTK's built-in theme, `omui.css`, the app's CSS, then the tokens. The reset covers the whole display, so
+a reset, GTK's built-in theme, `omui.css`, the app's CSS, then the tokens. A `gtk::CssProvider` the app adds as it runs
+(a zoom, a font from its settings) goes at `omui::APP_PRIORITY`, beside the app's CSS: at GTK's
+`STYLE_PROVIDER_PRIORITY_APPLICATION` the reset unsets all it says. The reset covers the whole display, so
 omui and libadwaita cannot share a process. A widget `omui.css` has no rule for keeps the built-in theme's look, dark
 or light as the palette is.
 
@@ -96,6 +98,19 @@ for as long as it said, whatever comes after it. `on_dismissed` runs once a toas
 has gone, however it went: its time ran out, it was closed, a later toast replaced it, or its button was pressed
 (after the button's action). A toast lasts five seconds unless `seconds` says otherwise.
 
+## Banners
+
+```rust
+let banner = omui::Banner::new("Your iCloud sign-in expired.", Some("Sign in"));
+banner.set_icon(Some(omui::icons::name::WARNING), "warning");
+banner.set_button_suggested(true);
+banner.connect_button_clicked(move || sign_in());
+banner.set_revealed(true);
+```
+
+A `Banner` slides down across the top of its pane. Its icon is tinted by a class (`accent`, `warning`, `error`,
+`success`); `set_button_enabled(false)` holds its button while what it starts is running, and `add_button` adds more.
+
 ## Dialogs
 
 ```rust
@@ -112,7 +127,9 @@ in managed or global scope anywhere under the dialog, or any on the window) and 
 nothing; they act again once the last dialog has closed. `omui::dialog_open(&widget)` and `Shell::dialog_open` say
 whether one is open, for whatever else an app starts from outside the window. Tab stays inside it, Escape gives the
 close response, and Enter the default one: from an entry too, when the entry has `set_activates_default(true)`.
-`set_can_close(false)` makes Escape do nothing until `force_close`. A window that has no `Shell` gets a modal window
+`set_can_close(false)` makes Escape do nothing until `force_close`. `set_response_closes(id, false)` keeps the dialog
+open when that response is given, for an action on what it shows (Clear in a log): its handlers run with the dialog on
+screen. The close response always closes. A window that has no `Shell` gets a modal window
 instead.
 
 A dialog with a heading or a body is 420 pixels wide, margins included, so its text wraps at a readable width; it is
@@ -147,6 +164,20 @@ using one:
   step in `connect_changed`. Collapsed, the content is shown while the sidebar is away.
 
 The keyboard goes with the pane that is shown, and comes back to where it was. Tab starts in the sidebar.
+
+`set_resizable(true)` puts a divider between the two panes while both are on screen. It is dragged, or takes the
+keyboard in its turn after the sidebar, where Left and Right move it 16 pixels and Home and End to the sidebar's least
+and most: the limits given to `Split::new`, and no more than leaves the content what it needs. `sidebar_width()` is
+the width to save when the window closes, `set_sidebar_width(saved)` restores it, and `connect_changed` runs after
+each move.
+
+```rust
+let split = omui::Split::new(&lists, &editor, (200, 500), Some(560));
+split.set_resizable(true);
+split.set_sidebar_width(saved.sidebar);
+// and as the window closes:
+saved.sidebar = split.sidebar_width();
+```
 
 `Nav` is a `gtk::Stack` with `push`, `pop` and `pop_to_root`; Escape and Alt+Left pop, wherever the keyboard is in
 the window while a pushed page is on screen and no dialog is open. `tabs(&stack)` is a row of
@@ -212,7 +243,8 @@ GTK and Adwaita names are kept where one exists.
   `success` `accent` `page-title` `section-title` `meta` `status-line`
 - Containers: `sidebar` `sidebar-row` `sidebar-footer` `toolbar` `result` `result-title` `snippet` `badge`
   `empty-state` `compact` `banner` `toasts` `toast` `om-shell` `search-large` `dialog` `dialog-backdrop`
-  `dialog-header` `dialog-heading` `dialog-close` `dialog-body` `dialog-extra` `dialog-actions` `om-split` `collapsed` `page` `tabs` `narrow` `group` `group-title`
+  `dialog-header` `dialog-heading` `dialog-close` `dialog-body` `dialog-extra` `dialog-actions` `om-split` `collapsed`
+  `om-divider` `dragging` `page` `tabs` `narrow` `group` `group-title`
   `group-description` `boxed-list` `om-row` `row-title` `row-subtitle` `property` `entry-row` `expander-row`
   `expanded` `avatar`
 

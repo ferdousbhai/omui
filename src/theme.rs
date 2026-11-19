@@ -299,7 +299,10 @@ impl Palette {
 const RESET_PRIORITY: u32 = gtk::STYLE_PROVIDER_PRIORITY_USER + 1;
 const BASE_PRIORITY: u32 = RESET_PRIORITY + 1;
 const OMUI_PRIORITY: u32 = BASE_PRIORITY + 1;
-const APP_PRIORITY: u32 = OMUI_PRIORITY + 1;
+/// Where the app's stylesheet sits, and any `gtk::CssProvider` the app adds later (a zoom, a font chosen in its
+/// settings): above omui's own, and above the reset, which unsets every property of every node below this priority.
+/// GTK's `STYLE_PROVIDER_PRIORITY_APPLICATION` is under the reset, so a provider added there does nothing.
+pub const APP_PRIORITY: u32 = OMUI_PRIORITY + 1;
 const TOKEN_PRIORITY: u32 = APP_PRIORITY + 1;
 const OMUI_CSS: &str = include_str!("omui.css");
 const ROOT_FONT_PX: f64 = 13.0;

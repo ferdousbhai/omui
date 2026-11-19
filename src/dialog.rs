@@ -55,7 +55,8 @@ const HELD: [(&str, &str); 2] = [("can-focus", "om-held-can-focus"), ("can-targe
 /// A heading, a body, any widget of the app's, and a row of responses. Every part is optional: with neither heading nor
 /// body the dialog is the app's widget alone, edge to edge.
 ///
-/// A response closes the dialog and then runs the handlers. Escape gives the close response, Enter the default one.
+/// A response closes the dialog and then runs the handlers, unless [`Dialog::set_response_closes`] says it stays open.
+/// Escape gives the close response, Enter the default one.
 /// A dialog stays alive while it is shown, so the handle may be dropped after [`Dialog::present`].
 #[derive(Clone)]
 pub struct Dialog {
@@ -106,6 +107,8 @@ struct Inner {
     content_size: PreferredLayout,
     actions: gtk::Box,
     responses: RefCell<Vec<(String, gtk::Button)>>,
+    /// The responses that leave the dialog open (`set_response_closes`).
+    staying: RefCell<Vec<String>>,
     default_response: RefCell<Option<String>>,
     close_response: RefCell<Option<String>>,
     can_close: Cell<bool>,
@@ -193,6 +196,7 @@ impl Dialog {
                 content_size,
                 actions,
                 responses: RefCell::new(Vec::new()),
+                staying: RefCell::new(Vec::new()),
                 default_response: RefCell::new(None),
                 close_response: RefCell::new(None),
                 can_close: Cell::new(true),
@@ -276,6 +280,17 @@ impl Dialog {
         }
     }
 
+    /// Whether giving the response closes the dialog; it does unless this turns it off. One that does not runs the
+    /// handlers with the dialog still open, for an action on what the dialog shows: Clear in a log, Copy beside a
+    /// code. The close response always closes, from Escape or the close button.
+    pub fn set_response_closes(&self, id: &str, on: bool) {
+        let mut staying = self.inner.staying.borrow_mut();
+        staying.retain(|response| response != id);
+        if !on {
+            staying.push(id.to_owned());
+        }
+    }
+
     /// The response Enter gives, from anywhere but another button or a field that keeps Enter for itself.
     pub fn set_default_response(&self, id: &str) {
         self.inner.default_response.replace(Some(id.to_owned()));
@@ -351,7 +366,8 @@ impl Dialog {
         self.inner.close_button.replace(Some(button));
     }
 
-    /// Runs `f` with the response's id after the dialog has closed. The dialog's widgets are still there to read.
+    /// Runs `f` with the response's id after the dialog has closed, or while it stays open for one that does not
+    /// close it. The dialog's widgets are still there to read.
     pub fn connect_response(&self, f: impl Fn(&Dialog, &str) + 'static) {
         self.inner.handlers.borrow_mut().push(Rc::new(f));
     }
@@ -441,16 +457,22 @@ impl Dialog {
         if !self.inner.can_close.get() || self.inner.surface.upgrade().is_none() {
             return;
         }
+        self.dismiss();
         let response = self.inner.close_response.borrow().clone();
-        match response {
-            Some(id) => self.respond(&id),
-            None => self.dismiss(),
+        if let Some(id) = response {
+            self.emit(&id);
         }
     }
 
     /// Closes whatever [`Dialog::set_can_close`] says, and runs no handler.
     pub fn force_close(&self) {
         self.dismiss();
+    }
+
+    /// Presses the response's button, as a click would.
+    #[cfg(test)]
+    pub(crate) fn click(&self, id: &str) {
+        self.button(id).expect("a response that was added").emit_clicked();
     }
 
     fn button(&self, id: &str) -> Option<gtk::Button> {
@@ -476,7 +498,13 @@ impl Dialog {
 
     fn respond(&self, id: &str) {
         // Closed first, so a handler that presents the next dialog finds the window as it was.
-        self.dismiss();
+        if !self.inner.staying.borrow().iter().any(|response| response == id) {
+            self.dismiss();
+        }
+        self.emit(id);
+    }
+
+    fn emit(&self, id: &str) {
         let handlers = self.inner.handlers.borrow().clone();
         for handler in handlers {
             handler(self, id);
