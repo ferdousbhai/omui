@@ -8,7 +8,7 @@
 
 use std::{
     cell::{Cell, RefCell},
-    rc::Rc,
+    rc::{Rc, Weak},
 };
 
 use gtk::{gdk, glib, graphene, gsk, prelude::*, subclass::prelude::*};
@@ -132,6 +132,55 @@ mod imp {
                 height,
                 baseline,
             );
+        }
+    }
+
+    /// Gives its widget's one child the whole of it, and asks for `size` pixels each way (-1: what the child asks
+    /// for): the size the child has where there is room, and no less than the child can be.
+    pub struct PreferredLayout {
+        pub size: Cell<(i32, i32)>,
+    }
+
+    impl Default for PreferredLayout {
+        fn default() -> Self {
+            Self {
+                size: Cell::new((-1, -1)),
+            }
+        }
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for PreferredLayout {
+        const NAME: &'static str = "OmuiPreferredLayout";
+        type Type = super::PreferredLayout;
+        type ParentType = gtk::LayoutManager;
+    }
+
+    impl ObjectImpl for PreferredLayout {}
+
+    impl LayoutManagerImpl for PreferredLayout {
+        fn measure(&self, widget: &gtk::Widget, orientation: gtk::Orientation, for_size: i32) -> (i32, i32, i32, i32) {
+            let Some(child) = widget.first_child().filter(|child| child.should_layout()) else {
+                return (0, 0, -1, -1);
+            };
+            let (width, height) = self.size.get();
+            let (preferred, for_size) = if orientation == gtk::Orientation::Horizontal {
+                (width, for_size)
+            } else if for_size < 0 && width >= 0 {
+                // Asked for no width in particular: as tall as the child is at the preferred one.
+                (height, width.max(minimum_width(&child)))
+            } else {
+                (height, for_size)
+            };
+            let (minimum, natural, ..) = child.measure(orientation, for_size);
+            let natural = if preferred < 0 { natural } else { preferred.max(minimum) };
+            (minimum, natural, -1, -1)
+        }
+
+        fn allocate(&self, widget: &gtk::Widget, width: i32, height: i32, baseline: i32) {
+            if let Some(child) = widget.first_child().filter(|child| child.should_layout()) {
+                child.allocate(width, height, baseline, None);
+            }
         }
     }
 
@@ -279,6 +328,17 @@ glib::wrapper! {
 }
 
 glib::wrapper! {
+    pub struct PreferredLayout(ObjectSubclass<imp::PreferredLayout>) @extends gtk::LayoutManager;
+}
+
+impl PreferredLayout {
+    pub fn set_size(&self, width: i32, height: i32) {
+        self.imp().size.set((width, height));
+        self.layout_changed();
+    }
+}
+
+glib::wrapper! {
     pub struct SplitLayout(ObjectSubclass<imp::SplitLayout>) @extends gtk::LayoutManager;
 }
 
@@ -318,6 +378,54 @@ fn emit<T>(handlers: &Changed<T>, this: &T) {
     }
 }
 
+/// The weak handle of a [`Split`] or a [`Nav`], and what lets `glib::clone!` make one for `#[weak]`.
+macro_rules! weak_handle {
+    ($handle:ident, $weak:ident, $state:ident) => {
+        /// A handle that does not keep the widget alive: what a handler on a widget inside it holds, since the
+        /// widget owns the handler. `glib::clone!` makes one for `#[weak]`.
+        #[derive(Clone)]
+        pub struct $weak(Weak<$state>);
+
+        impl $weak {
+            /// The handle, while the widget is alive.
+            pub fn upgrade(&self) -> Option<$handle> {
+                $handle::of(&self.0.upgrade()?)
+            }
+        }
+
+        impl $handle {
+            /// For a handler on a widget inside this one.
+            pub fn downgrade(&self) -> $weak {
+                $weak(Rc::downgrade(&self.state))
+            }
+
+            fn of(state: &Rc<$state>) -> Option<Self> {
+                let widget = state.widget.upgrade()?;
+                Some(Self {
+                    widget,
+                    state: state.clone(),
+                })
+            }
+        }
+
+        impl glib::clone::Downgrade for $handle {
+            type Weak = $weak;
+
+            fn downgrade(&self) -> $weak {
+                $handle::downgrade(self)
+            }
+        }
+
+        impl glib::clone::Upgrade for $weak {
+            type Strong = $handle;
+
+            fn upgrade(&self) -> Option<$handle> {
+                $weak::upgrade(self)
+            }
+        }
+    };
+}
+
 /// A sidebar beside the content (`adw::NavigationSplitView` and `adw::OverlaySplitView`). The sidebar is a quarter
 /// of the width, within the limits given. Narrower than `collapse_below`, or than the two panes need, the split is
 /// collapsed and shows one pane, which fills it: the sidebar, until the content is asked for or the sidebar is put
@@ -327,9 +435,17 @@ fn emit<T>(handlers: &Changed<T>, this: &T) {
 /// content that is visible while [`Split::is_collapsed`]. A sidebar with a button that shows and hides it calls
 /// [`Split::set_show_sidebar`], and keeps the button in step from [`Split::connect_changed`].
 ///
-/// The `Rc` is the split: its widget follows the width for as long as the app holds it.
+/// This is a handle: the widget is the split and works without it. A handler on a widget inside the split holds a
+/// [`WeakSplit`], or the two would keep each other alive.
+#[derive(Clone)]
 pub struct Split {
     pub widget: gtk::Box,
+    state: Rc<SplitState>,
+}
+
+struct SplitState {
+    /// Weak: the widget owns this, by its layout and its key handler.
+    widget: glib::WeakRef<gtk::Box>,
     sidebar: gtk::Widget,
     content: gtk::Widget,
     collapsed: Cell<bool>,
@@ -343,6 +459,8 @@ pub struct Split {
     changed: Changed<Split>,
 }
 
+weak_handle!(Split, WeakSplit, SplitState);
+
 impl Split {
     /// `sidebar_width` is the least and the most the sidebar gets, in pixels. With no `collapse_below` the split
     /// never collapses.
@@ -351,7 +469,7 @@ impl Split {
         content: &impl IsA<gtk::Widget>,
         sidebar_width: (i32, i32),
         collapse_below: Option<i32>,
-    ) -> Rc<Self> {
+    ) -> Self {
         let layout: SplitLayout = glib::Object::new();
         layout.imp().sidebar_width.set(sidebar_width);
         layout.imp().collapse_below.set(collapse_below);
@@ -372,8 +490,8 @@ impl Split {
             holder.upcast::<gtk::Widget>()
         };
         let (sidebar, content) = (hold(sidebar.as_ref()), hold(content.as_ref()));
-        let split = Rc::new(Self {
-            widget,
+        let state = Rc::new(SplitState {
+            widget: widget.downgrade(),
             sidebar,
             content,
             collapsed: Cell::new(false),
@@ -384,94 +502,101 @@ impl Split {
             changed: RefCell::default(),
         });
 
-        let weak = Rc::downgrade(&split);
-        layout.imp().on_collapsed.replace(Some(Rc::new(move |collapsed| {
-            if let Some(split) = weak.upgrade()
-                && split.collapsed.replace(collapsed) != collapsed
-            {
-                split.settling.set(true);
-                emit(&split.changed, &split);
-                split.settling.set(false);
-                split.apply();
+        layout.imp().on_collapsed.replace(Some(Rc::new({
+            let state = state.clone();
+            move |collapsed| {
+                if let Some(split) = Split::of(&state)
+                    && state.collapsed.replace(collapsed) != collapsed
+                {
+                    state.settling.set(true);
+                    emit(&state.changed, &split);
+                    state.settling.set(false);
+                    split.apply();
+                }
             }
         })));
         // Back from the content to the sidebar, where the content was a step forward from it.
         let keys = gtk::EventControllerKey::new();
-        let weak = Rc::downgrade(&split);
-        keys.connect_key_pressed(move |_, key, _, modifiers| {
-            let Some(split) = weak.upgrade() else {
-                return glib::Propagation::Proceed;
-            };
-            if is_back(key, modifiers) && split.is_collapsed() && split.show_sidebar.get() && split.show_content.get() {
-                split.set_show_content(false);
-                return glib::Propagation::Stop;
+        keys.connect_key_pressed({
+            let state = state.clone();
+            move |_, key, _, modifiers| match Split::of(&state) {
+                Some(split)
+                    if is_back(key, modifiers)
+                        && split.is_collapsed()
+                        && split.shows_sidebar()
+                        && split.shows_content() =>
+                {
+                    split.set_show_content(false);
+                    glib::Propagation::Stop
+                }
+                _ => glib::Propagation::Proceed,
             }
-            glib::Propagation::Proceed
         });
-        split.widget.add_controller(keys);
-        split
+        widget.add_controller(keys);
+        Self { widget, state }
     }
 
     /// Whether the split is too narrow for both panes and shows one.
     pub fn is_collapsed(&self) -> bool {
-        self.collapsed.get()
+        self.state.collapsed.get()
     }
 
     /// When collapsed: the content in place of the sidebar, or the sidebar again. Wide, both are there whatever
     /// this says, and it is remembered for when the split collapses.
     pub fn set_show_content(&self, on: bool) {
-        if self.show_content.replace(on) != on {
+        if self.state.show_content.replace(on) != on {
             self.apply();
-            emit(&self.changed, self);
+            emit(&self.state.changed, self);
         }
     }
 
     pub fn shows_content(&self) -> bool {
-        self.show_content.get()
+        self.state.show_content.get()
     }
 
     /// Puts the sidebar away, or brings it back. Collapsed, the content is shown while the sidebar is away.
     pub fn set_show_sidebar(&self, on: bool) {
-        if self.show_sidebar.replace(on) != on {
+        if self.state.show_sidebar.replace(on) != on {
             self.apply();
-            emit(&self.changed, self);
+            emit(&self.state.changed, self);
         }
     }
 
     pub fn shows_sidebar(&self) -> bool {
-        self.show_sidebar.get()
+        self.state.show_sidebar.get()
     }
 
     /// Runs `f` when the split collapses or widens, and when either pane is shown or put away.
     pub fn connect_changed(&self, f: impl Fn(&Split) + 'static) {
-        self.changed.borrow_mut().push(Rc::new(f));
+        self.state.changed.borrow_mut().push(Rc::new(f));
     }
 
     /// Puts on screen the panes the state calls for, by their holders' child visibility: a pane taken off still
     /// counts toward the split's size.
     fn apply(&self) {
-        if self.settling.get() {
+        let state = &self.state;
+        if state.settling.get() {
             return;
         }
-        let collapsed = self.collapsed.get();
-        let sidebar = self.show_sidebar.get() && !(collapsed && self.show_content.get());
+        let collapsed = state.collapsed.get();
+        let sidebar = state.show_sidebar.get() && !(collapsed && state.show_content.get());
         let content = !(collapsed && sidebar);
         crate::set_class(&self.widget, "collapsed", collapsed);
         // A pane that goes with the keyboard in it hands the keyboard to the other, and gets it back where it was:
         // GTK would drop the focus, and the next Tab would start from the top of the window.
-        let panes = [(&self.sidebar, sidebar), (&self.content, content)];
+        let panes = [(&state.sidebar, sidebar), (&state.content, content)];
         let leaving = panes
             .iter()
             .position(|(pane, stays)| !stays && focus_inside(pane).is_some());
         if let Some(leaving) = leaving {
-            self.left_focus[leaving].set(focus_inside(panes[leaving].0).as_ref());
+            state.left_focus[leaving].set(focus_inside(panes[leaving].0).as_ref());
         }
-        self.sidebar.set_child_visible(sidebar);
-        self.content.set_child_visible(content);
+        state.sidebar.set_child_visible(sidebar);
+        state.content.set_child_visible(content);
         self.widget.queue_resize();
         if let Some(leaving) = leaving {
             let other = 1 - leaving;
-            give_focus(panes[other].0, &self.left_focus[other]);
+            give_focus(panes[other].0, &state.left_focus[other]);
         }
     }
 }
@@ -480,35 +605,48 @@ impl Split {
 /// page's own back button is the app's, built with [`crate::icon_button`] and calling [`Nav::pop`]. The keyboard
 /// goes with the page shown, and comes back to where it was on the page under it: the stack sees to that.
 ///
-/// The `Rc` is the stack of pages: its widget answers those keys for as long as the app holds it.
+/// This is a handle: the widget is the stack of pages and works without it. A handler on a widget in one of the
+/// pages holds a [`WeakNav`], or the two would keep each other alive.
+#[derive(Clone)]
 pub struct Nav {
     pub widget: gtk::Stack,
+    state: Rc<NavState>,
+}
+
+struct NavState {
+    /// Weak: the widget owns this, by its key handler.
+    widget: glib::WeakRef<gtk::Stack>,
     root: gtk::Widget,
     /// The pages over the root, with their tags.
     pushed: RefCell<Vec<(String, gtk::Widget)>>,
     changed: Changed<Nav>,
 }
 
+weak_handle!(Nav, WeakNav, NavState);
+
 impl Nav {
-    pub fn new(root: &impl IsA<gtk::Widget>) -> Rc<Self> {
-        let nav = Rc::new(Self {
-            widget: gtk::Stack::new(),
+    pub fn new(root: &impl IsA<gtk::Widget>) -> Self {
+        let widget = gtk::Stack::new();
+        let state = Rc::new(NavState {
+            widget: widget.downgrade(),
             root: root.as_ref().clone(),
             pushed: RefCell::default(),
             changed: RefCell::default(),
         });
-        nav.widget.add_child(&nav.root);
+        widget.add_child(&state.root);
         let keys = gtk::EventControllerKey::new();
-        let weak = Rc::downgrade(&nav);
-        keys.connect_key_pressed(move |_, key, _, modifiers| match weak.upgrade() {
-            Some(nav) if is_back(key, modifiers) && nav.visible_tag().is_some() => {
-                nav.pop();
-                glib::Propagation::Stop
+        keys.connect_key_pressed({
+            let state = state.clone();
+            move |_, key, _, modifiers| match Nav::of(&state) {
+                Some(nav) if is_back(key, modifiers) && nav.visible_tag().is_some() => {
+                    nav.pop();
+                    glib::Propagation::Stop
+                }
+                _ => glib::Propagation::Proceed,
             }
-            _ => glib::Propagation::Proceed,
         });
-        nav.widget.add_controller(keys);
-        nav
+        widget.add_controller(keys);
+        Self { widget, state }
     }
 
     /// Shows `page` over what is there.
@@ -516,13 +654,13 @@ impl Nav {
         let page: gtk::Widget = page.as_ref().clone();
         self.widget.add_child(&page);
         self.widget.set_visible_child(&page);
-        self.pushed.borrow_mut().push((tag.to_owned(), page));
-        emit(&self.changed, self);
+        self.state.pushed.borrow_mut().push((tag.to_owned(), page));
+        emit(&self.state.changed, self);
     }
 
     /// Goes back one page. The page that was on top is dropped. At the root this does nothing.
     pub fn pop(&self) {
-        let depth = self.pushed.borrow().len();
+        let depth = self.state.pushed.borrow().len();
         self.leave(depth.saturating_sub(1));
     }
 
@@ -532,30 +670,30 @@ impl Nav {
 
     /// The tag of the page on top; None at the root.
     pub fn visible_tag(&self) -> Option<String> {
-        self.pushed.borrow().last().map(|(tag, _)| tag.clone())
+        self.state.pushed.borrow().last().map(|(tag, _)| tag.clone())
     }
 
     /// Runs `f` after a page was pushed or popped, by the app or by a key.
     pub fn connect_changed(&self, f: impl Fn(&Nav) + 'static) {
-        self.changed.borrow_mut().push(Rc::new(f));
+        self.state.changed.borrow_mut().push(Rc::new(f));
     }
 
     /// Drops pages until `depth` are left.
     fn leave(&self, depth: usize) {
         let gone: Vec<(String, gtk::Widget)> = {
-            let mut pushed = self.pushed.borrow_mut();
+            let mut pushed = self.state.pushed.borrow_mut();
             if depth >= pushed.len() {
                 return;
             }
             pushed.drain(depth..).collect()
         };
-        let under = self.pushed.borrow().last().map(|(_, page)| page.clone());
+        let under = self.state.pushed.borrow().last().map(|(_, page)| page.clone());
         self.widget
-            .set_visible_child(&under.unwrap_or_else(|| self.root.clone()));
+            .set_visible_child(&under.unwrap_or_else(|| self.state.root.clone()));
         for (_, page) in &gone {
             self.widget.remove(page);
         }
-        emit(&self.changed, self);
+        emit(&self.state.changed, self);
     }
 }
 

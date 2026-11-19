@@ -10,6 +10,8 @@ use std::{
 
 use gtk::{gdk, gio, glib, prelude::*};
 
+use crate::layout::PreferredLayout;
+
 /// How a response's button is drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Appearance {
@@ -74,6 +76,7 @@ struct Inner {
     /// Where the app's widget scrolls, and inside it the box that holds the widget.
     extra: gtk::ScrolledWindow,
     content: gtk::Box,
+    content_size: PreferredLayout,
     actions: gtk::Box,
     responses: RefCell<Vec<(String, gtk::Button)>>,
     default_response: RefCell<Option<String>>,
@@ -119,13 +122,17 @@ impl Dialog {
         if let (Some(_), Some(body)) = (&heading, &body) {
             card.update_relation(&[gtk::accessible::Relation::DescribedBy(&[body.upcast_ref()])]);
         }
-        // Homogeneous, so its one child gets the whole width whether or not it asks to expand.
-        let content = gtk::Box::builder().homogeneous(true).build();
-        // In a window too small for the dialog the app's widget scrolls, and the heading and the responses stay.
+        // A box for its `append` alone: the layout is the dialog's, and gives the app's widget the whole of it.
+        let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        let content_size: PreferredLayout = glib::Object::new();
+        content.set_layout_manager(Some(content_size.clone()));
+        // In a window too low for the dialog the app's widget scrolls, and the heading and the responses stay. It
+        // never scrolls sideways: in a narrow window it is narrower.
         // As any scrolled window, it takes the focus itself when nothing inside does, for the keys that scroll.
         let extra = gtk::ScrolledWindow::builder()
             .css_classes(["dialog-extra"])
             .child(&content)
+            .hscrollbar_policy(gtk::PolicyType::Never)
             .propagate_natural_width(true)
             .propagate_natural_height(true)
             .visible(false)
@@ -144,6 +151,7 @@ impl Dialog {
                 title: RefCell::new(None),
                 extra,
                 content,
+                content_size,
                 actions,
                 responses: RefCell::new(Vec::new()),
                 default_response: RefCell::new(None),
@@ -248,10 +256,11 @@ impl Dialog {
         self.inner.extra.set_visible(child.is_some());
     }
 
-    /// The least size of the app's widget, in pixels; -1 leaves a dimension to the widget. In a window smaller than
-    /// the dialog the widget scrolls.
+    /// The size of the app's widget where the window has room for it, in pixels, as the content size of an
+    /// `adw::Dialog` is; -1 leaves a dimension to the widget. In a narrower window the widget is narrower, down to
+    /// the least it can be, and in a lower one it scrolls.
     pub fn set_content_size(&self, width: i32, height: i32) {
-        self.inner.content.set_size_request(width, height);
+        self.inner.content_size.set_size(width, height);
     }
 
     /// Whether Escape and [`Dialog::close`] close the dialog. Off while work that must finish is running: then only a

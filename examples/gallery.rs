@@ -55,10 +55,6 @@ const PAGES: &[(&str, &str, &str)] = &[
     ("avatars", name::USERS, "Avatars"),
 ];
 
-/// The shell, the splits and the stacks of pages, which work for as long as their `Rc` is held: here, as long as the
-/// window.
-type Held = Vec<Rc<dyn std::any::Any>>;
-
 /// What `OMUI_GALLERY_OPEN` can name: the page it is on, and what a click on it does.
 type Openers = Vec<(&'static str, &'static str, Rc<dyn Fn()>)>;
 
@@ -147,7 +143,7 @@ fn open(app: &gtk::Application) {
     // sidebar until a page is chosen.
     let split = Split::new(&sidebar, &stack, (200, 260), Some(720));
     toggle.connect_toggled({
-        let split = Rc::downgrade(&split);
+        let split = split.downgrade();
         move |toggle| {
             if let Some(split) = split.upgrade() {
                 split.set_show_sidebar(toggle.is_active());
@@ -182,9 +178,8 @@ fn open(app: &gtk::Application) {
     stack.add_named(&inputs(&mut openers), Some("inputs"));
     stack.add_named(&menus(&mut openers), Some("menus"));
     stack.add_named(&views(), Some("views"));
-    let mut held: Held = vec![split.clone(), shell.clone()];
-    stack.add_named(&contacts(&shell, &mut openers, &mut held), Some("split"));
-    stack.add_named(&setup(&mut openers, &mut held), Some("nav"));
+    stack.add_named(&contacts(&shell, &mut openers), Some("split"));
+    stack.add_named(&setup(&mut openers), Some("nav"));
     stack.add_named(&tabbed(), Some("tabs"));
     stack.add_named(&rows(&shell, &mut openers), Some("rows"));
     stack.add_named(&avatars(), Some("avatars"));
@@ -198,7 +193,7 @@ fn open(app: &gtk::Application) {
     });
     // Chosen, not merely moved to with the arrows: in a narrow window the page takes the sidebar's place.
     list.connect_row_activated({
-        let split = Rc::downgrade(&split);
+        let split = split.downgrade();
         move |_, _| {
             if let Some(split) = split.upgrade().filter(|split| split.is_collapsed()) {
                 split.set_show_sidebar(false);
@@ -226,8 +221,9 @@ fn open(app: &gtk::Application) {
     if std::env::var_os("OMUI_GALLERY_TRACE").is_some() {
         window.connect_focus_widget_notify(|window| trace(&format!("focus: {}", focus_name(RootExt::focus(window)))));
     }
-    let held = std::cell::RefCell::new(held);
-    window.connect_destroy(move |_| held.borrow_mut().clear());
+    // The shell shows toasts for as long as its `Rc` is held: here, as long as the window.
+    let held = std::cell::RefCell::new(Some(shell.clone()));
+    window.connect_destroy(move |_| drop(held.take()));
     window.present();
     if opener.is_none() && std::env::var_os("OMUI_GALLERY_PAGE").is_some() {
         stack.child_focus(gtk::DirectionType::TabForward);
@@ -1132,7 +1128,7 @@ const PEOPLE: &[Person] = &[
 
 /// A list and the card of what is chosen in it, as Contacts has: too narrow for both, a chosen row's card takes the
 /// list's place, with a way back.
-fn contacts(shell: &Rc<Shell>, openers: &mut Openers, held: &mut Held) -> gtk::Box {
+fn contacts(shell: &Rc<Shell>, openers: &mut Openers) -> gtk::Box {
     let list = gtk::ListBox::new();
     let rows: Vec<Row> = PEOPLE
         .iter()
@@ -1189,7 +1185,7 @@ fn contacts(shell: &Rc<Shell>, openers: &mut Openers, held: &mut Held) -> gtk::B
         }
     });
     back.connect_clicked({
-        let split = Rc::downgrade(&split);
+        let split = split.downgrade();
         move |_| {
             if let Some(split) = split.upgrade() {
                 split.set_show_content(false);
@@ -1206,7 +1202,7 @@ fn contacts(shell: &Rc<Shell>, openers: &mut Openers, held: &mut Held) -> gtk::B
     });
     // Chosen, not merely moved to with the arrows: in a narrow window the card takes the list's place.
     for row in rows {
-        let split = Rc::downgrade(&split);
+        let split = split.downgrade();
         row.connect_activated(move || {
             if let Some(split) = split.upgrade() {
                 split.set_show_content(true);
@@ -1216,9 +1212,7 @@ fn contacts(shell: &Rc<Shell>, openers: &mut Openers, held: &mut Held) -> gtk::B
     list.select_row(list.row_at_index(0).as_ref());
     edit.connect_clicked(edit_contact);
     openers.push(("contact", "split", Rc::new(move || edit_contact(&edit))));
-    let widget = split.widget.clone();
-    held.push(split);
-    widget
+    split.widget
 }
 
 fn show_card(card: &gtk::Box, shell: &Rc<Shell>, (name, work, values): &Person) {
@@ -1334,7 +1328,7 @@ fn edit_contact(parent: &gtk::Button) {
 }
 
 /// Omacloud's setup: pages pushed one over another, a form of rows, and the recovery code that is shown once.
-fn setup(openers: &mut Openers, held: &mut Held) -> gtk::Stack {
+fn setup(openers: &mut Openers) -> gtk::Stack {
     let (root, column) = omui::page(560);
     let nav = Nav::new(&root);
     nav.connect_changed(|nav| trace(&format!("nav: {}", nav.visible_tag().as_deref().unwrap_or("root"))));
@@ -1351,7 +1345,7 @@ fn setup(openers: &mut Openers, held: &mut Held) -> gtk::Stack {
         let row = Row::new(title, subtitle);
         row.add_suffix(&omui::icon(name::FORWARD));
         row.connect_activated({
-            let nav = Rc::downgrade(&nav);
+            let nav = nav.downgrade();
             move || {
                 if let Some(nav) = nav.upgrade() {
                     nav.push(tag, &account_page(&nav, title, tag == "create"));
@@ -1365,17 +1359,15 @@ fn setup(openers: &mut Openers, held: &mut Held) -> gtk::Stack {
         let stack = nav.widget.clone();
         Rc::new(move || recovery_code(&stack))
     }));
-    let widget = nav.widget.clone();
-    held.push(nav);
-    widget
+    nav.widget
 }
 
 /// A pushed page: a bar with the way back and the page's title, over a form.
-fn account_page(nav: &Rc<Nav>, title: &str, create: bool) -> gtk::Box {
+fn account_page(nav: &Nav, title: &str, create: bool) -> gtk::Box {
     let bar = gtk::Box::builder().css_classes(["toolbar"]).build();
     let back = omui::icon_button(name::BACK, "Back");
     back.connect_clicked({
-        let nav = Rc::downgrade(nav);
+        let nav = nav.downgrade();
         move |_| {
             if let Some(nav) = nav.upgrade() {
                 nav.pop();
@@ -1406,7 +1398,7 @@ fn account_page(nav: &Rc<Nav>, title: &str, create: bool) -> gtk::Box {
     let advanced = Row::new("Advanced", "");
     advanced.add_suffix(&omui::icon(name::FORWARD));
     advanced.connect_activated({
-        let nav = Rc::downgrade(nav);
+        let nav = nav.downgrade();
         move || {
             if let Some(nav) = nav.upgrade() {
                 nav.push("advanced", &advanced_page(&nav));
@@ -1428,7 +1420,7 @@ fn account_page(nav: &Rc<Nav>, title: &str, create: bool) -> gtk::Box {
     page
 }
 
-fn advanced_page(nav: &Rc<Nav>) -> gtk::Box {
+fn advanced_page(nav: &Nav) -> gtk::Box {
     let (scroll, column) = omui::page(560);
     let group = Group::new("Advanced", "Two pages deep.");
     group.add(
@@ -1442,7 +1434,7 @@ fn advanced_page(nav: &Rc<Nav>) -> gtk::Box {
         .halign(gtk::Align::Start)
         .build();
     over.connect_clicked({
-        let nav = Rc::downgrade(nav);
+        let nav = nav.downgrade();
         move |_| {
             if let Some(nav) = nav.upgrade() {
                 nav.pop_to_root();

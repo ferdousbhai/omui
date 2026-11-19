@@ -96,8 +96,9 @@ the content and the title bar take neither keys nor the pointer. Tab stays insid
 and Enter the default one: from an entry too, when the entry has `set_activates_default(true)`. `set_can_close(false)`
 makes Escape do nothing until `force_close`. A window that has no `Shell` gets a modal window instead.
 
-In a window too small for the dialog the app's widget scrolls, and the heading and the responses stay in view. A
-dialog with no heading takes its name for a screen reader from `set_title`.
+`set_content_size` is the size the app's widget has where there is room, as libadwaita's content size is. In a
+narrower window the widget is narrower; in one too low for the dialog it scrolls, and the heading and the responses
+stay in view. A dialog with no heading takes its name for a screen reader from `set_title`.
 
 A dialog owns its widgets, so a handler on one of them holds it weakly: `dialog.downgrade()`, or `#[weak] dialog` in
 `glib::clone!`.
@@ -126,9 +127,10 @@ The keyboard goes with the pane that is shown, and comes back to where it was. T
 tabs for a stack's pages, for a header bar; in a window under 700 pixels a tab with an icon shows the icon alone.
 `on_narrow(&widget, 640, |narrow| …)` is for whatever else changes with the width.
 
-A `Split` and a `Nav` are `Rc`s that the app keeps, as it keeps its `Shell`: the widget alone does not follow the
-width or answer the keys. A split can only collapse if the window can get that narrow, so content that will not
-shrink (a wide row of buttons outside a scrolled window) keeps it wide.
+A `Split` and a `Nav` are handles: the widget does the work, and goes on doing it when the handle is dropped. A
+handler on a widget inside one holds it weakly (`#[weak]` in `glib::clone!`, or `downgrade()`). A split can only
+collapse if the window can get that narrow, so content that will not shrink (a wide row of buttons outside a
+scrolled window) keeps it wide.
 
 ## Groups and rows
 
@@ -149,8 +151,9 @@ that class takes the same rows. `Row` has a title, a subtitle, and widgets befor
 `connect_activated` for a click or Enter. The rows that carry a control return it, a plain GTK widget, beside the row:
 `gtk::Entry`, `gtk::PasswordEntry`, `gtk::Switch`, `gtk::DropDown`. Titles and subtitles are plain text, not markup.
 
-Tab goes from row to row. A row that carries a control is one stop, the control, and a click anywhere on the row
-goes to it. `ExpanderRow` opens to show more rows under it.
+Tab goes from row to row, and so do Up and Down: through a group, on to the next, and into an open `ExpanderRow`,
+which shows more rows under it. A row that carries a control is one stop, the control, and a click anywhere on the
+row goes to it. In a list that selects, the arrows are GTK's own and move the selection.
 
 In a dialog, rows go in a `Group` with no title, and a whole page of groups is the dialog's widget:
 `dialog.set_extra_child(Some(scroll.upcast_ref()))`.

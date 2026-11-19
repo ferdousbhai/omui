@@ -4,12 +4,13 @@
 //! are plain text, not markup.
 //!
 //! The rows are `gtk::ListBoxRow`s, for a [`Group`] or for a `gtk::ListBox` of the app's with the class `boxed-list`.
-//! In a list Tab goes from row to row, and so do the arrow keys. A row that carries a control (an entry, a switch,
-//! a drop-down) is not a stop itself: the control is, and a click anywhere on the row goes to it.
+//! In a list Tab goes from row to row, and so do the Up and Down arrows, into and out of an [`ExpanderRow`] and from
+//! one [`Group`] to the next. A row that carries a control (an entry, a switch, a drop-down) is not a stop itself:
+//! the control is, and a click anywhere on the row goes to it.
 
 use std::{cell::RefCell, rc::Rc};
 
-use gtk::{glib, prelude::*};
+use gtk::{gdk, glib, prelude::*};
 
 use crate::icons;
 
@@ -164,6 +165,7 @@ impl Row {
         content.append(&this.text);
         content.append(&this.suffixes);
         this.widget.set_child(Some(&content));
+        this.widget.add_controller(arrows());
         this.set_title(title);
         this.set_subtitle(subtitle);
         this
@@ -270,7 +272,90 @@ impl Row {
         row.widget.add_css_class("entry-row");
         field.as_ref().set_hexpand(true);
         row.text.append(field);
+        // The row is outlined while the keyboard is in the field: omui.css draws it by this class.
+        let typing = gtk::EventControllerFocus::new();
+        typing.connect_contains_focus_notify({
+            let widget = row.widget.downgrade();
+            move |typing| {
+                if let Some(widget) = widget.upgrade() {
+                    crate::set_class(&widget, "typing", typing.contains_focus());
+                }
+            }
+        });
+        field.as_ref().add_controller(typing);
         row.carrying(field)
+    }
+}
+
+/// Up and Down, for a row: to the row before or after it, from the row or from a control in it. A list box's own
+/// arrow keys go only to a row that takes the keyboard itself, and never out of the list or into a list inside it.
+/// Past the last row the keyboard stays where it is.
+fn arrows() -> gtk::EventControllerKey {
+    let keys = gtk::EventControllerKey::new();
+    keys.connect_key_pressed(|keys, key, _, modifiers| {
+        let down = match key {
+            gdk::Key::Up | gdk::Key::KP_Up => false,
+            gdk::Key::Down | gdk::Key::KP_Down => true,
+            _ => return glib::Propagation::Proceed,
+        };
+        let held = gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::ALT_MASK | gdk::ModifierType::SHIFT_MASK;
+        let row = keys.widget();
+        let focus = row.as_ref().and_then(|row| row.root()).and_then(|root| root.focus());
+        let list = row.as_ref().and_then(|row| row.parent()).and_downcast::<gtk::ListBox>();
+        let (Some(row), Some(focus), Some(list)) = (row, focus, list) else {
+            return glib::Propagation::Proceed;
+        };
+        // In a popover of the row's (an open drop-down) the arrows are the popover's. In a list that selects, they
+        // are the list's: its selection goes with them.
+        if modifiers.intersects(held)
+            || focus.native() != row.native()
+            || list.selection_mode() != gtk::SelectionMode::None
+        {
+            return glib::Propagation::Proceed;
+        }
+        // The outermost list: an expander's rows are in lists inside a row of it. Then, for a group's list, the
+        // groups beside it.
+        let mut within: gtk::Widget = list.upcast();
+        while let Some(outer) = within
+            .parent()
+            .and_then(|parent| parent.ancestor(gtk::ListBox::static_type()))
+        {
+            within = outer;
+        }
+        if let Some(column) = within
+            .parent()
+            .filter(|group| group.has_css_class("group"))
+            .and_then(|group| group.parent())
+        {
+            within = column;
+        }
+        let mut rows = Vec::new();
+        rows_under(&within, &mut rows);
+        let at = rows.iter().position(|other| *other == row).unwrap_or(0);
+        let mut onward: Box<dyn Iterator<Item = &gtk::Widget>> = if down {
+            Box::new(rows[(at + 1).min(rows.len())..].iter())
+        } else {
+            Box::new(rows[..at].iter().rev())
+        };
+        // The row, or the control it carries. A disabled row takes neither, and is passed by.
+        onward.any(|row| row.grab_focus() || row.child_focus(gtk::DirectionType::TabForward));
+        glib::Propagation::Stop
+    });
+    keys
+}
+
+/// The rows on screen under `widget`, in order: an expander's own row, then the rows it shows while open.
+fn rows_under(widget: &gtk::Widget, rows: &mut Vec<gtk::Widget>) {
+    let mut child = widget.first_child();
+    while let Some(next) = child {
+        if next.is_mapped() {
+            if next.is::<gtk::ListBoxRow>() && !next.has_css_class("expander-row") {
+                rows.push(next.clone());
+            } else {
+                rows_under(&next, rows);
+            }
+        }
+        child = next.next_sibling();
     }
 }
 

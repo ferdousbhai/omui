@@ -72,6 +72,13 @@ check contact 'Tab ctrl+a BackSpace Tab ctrl+a BackSpace alt+s x alt+s' \
 # on an expander's row closes it, and Tab then passes its rows by; Enter on a closed one opens it.
 check page:rows 'Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab shift+ISO_Left_Tab Return Tab Return Tab' \
   'focus: row|focus: Add|focus: row Harbour office|focus: row Storage|focus: row A subtitle kept to two lines|focus: row Signed in as ada@example.org|focus: Sign Out|focus: text Name|focus: text Email|focus: text Password|focus: Show the text|focus: button Every hour|focus: switch Notifications|focus: switch Metered connections|focus: row harbour-laptop|focus: switch Documents|focus: row harbour-laptop|focus: row Lost every computer?|focus: text Recovery code'
+# The arrows go from row to row as well: past a row's button, through the controls that rows carry, from one group to
+# the next, into an open expander and out of it, and past a closed one's rows. At the last row Down stays there.
+check page:rows 'Tab Down Down Down Down Down Down Down Down Down Down Down Down Down Down Down Down Up Up Up' \
+  'focus: row|focus: Add|focus: row Harbour office|focus: row Storage|focus: row A subtitle kept to two lines|focus: row Signed in as ada@example.org|focus: text Name|focus: text Email|focus: text Password|focus: button Every hour|focus: switch Notifications|focus: switch Metered connections|focus: row harbour-laptop|focus: switch Documents|focus: switch Pictures|focus: row Lost every computer?|focus: row Account|focus: row Version|focus: row Account|focus: row Lost every computer?|focus: switch Pictures'
+# In a dialog's form too.
+check contact 'Down Down Up' \
+  'focus: row|focus: button iCloud (ada@example.org)|focus: text First name|focus: text Last name|focus: text First name'
 # Tabs. Enter on one shows its page, which is where Tab goes after the last of them.
 check page:tabs 'Tab Return Tab Tab Tab' \
   'focus: row|focus: button Overview|focus: button Devices|focus: button Settings|focus: button About|focus: row harbour-laptop'

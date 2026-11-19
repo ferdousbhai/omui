@@ -23,10 +23,12 @@ window.csd.tiled-bottom, window.csd.tiled-left {
   box-shadow: none;
 }
 
-button:focus-visible, entry:focus-within, row:focus-visible, flowboxchild:focus-visible, link:focus-visible,
-label:focus-visible, checkbutton:focus-visible, switch:focus-visible, modelbutton:focus-visible,
-expander-widget:focus-visible > box > title, notebook:focus-visible > header > tabs > tab:checked,
-calendar > grid > label:focus, gridview > child:focus-visible, .dialog-extra:focus-visible {
+/* GTK marks every ancestor of the widget that has the keyboard :focus-visible as well, so what can hold another
+   stop is outlined only while it is the stop itself (:focus). */
+button:focus-visible, entry:focus-within, row:focus:focus-visible, flowboxchild:focus:focus-visible,
+link:focus-visible, label:focus-visible, checkbutton:focus-visible, switch:focus-visible, modelbutton:focus-visible,
+expander-widget:focus:focus-visible > box > title, notebook:focus:focus-visible > header > tabs > tab:checked,
+calendar > grid > label:focus, gridview > child:focus:focus-visible, .dialog-extra:focus:focus-visible {
   outline: 2px solid @om_accent;
   outline-offset: -2px;
 }
@@ -624,7 +626,8 @@ row.om-row > box, .row-side { border-spacing: 10px; }
 /* A value and what it is: the title names it in small, and the subtitle is the text. */
 row.property .row-title, row.entry-row .row-title { color: @om_dim_text; font-size: 0.85em; }
 row.property .row-subtitle { color: @om_text; font-size: 1em; }
-/* The field of an entry row is the row: it has no box of its own, and the row shows where the keyboard is. */
+/* The field of an entry row is the row: it has no box of its own, and the row shows that the keyboard is in the
+   field (rows.rs marks it; :focus-within would also be the button beside the field). */
 row.entry-row entry {
   background: transparent;
   border: none;
@@ -633,13 +636,13 @@ row.entry-row entry {
   outline: none;
   padding: 0;
 }
-row.entry-row:focus-within { outline: 2px solid @om_accent; outline-offset: -2px; }
-/* A subtitle that can be selected has the row's outline while the keyboard is in it, not one of its own inside. */
-row.om-row .row-subtitle:focus-visible { outline: none; }
+row.entry-row.typing { outline: 2px solid @om_accent; outline-offset: -2px; }
+/* A subtitle that can be selected is outlined clear of its text. */
+row.om-row .row-subtitle:focus-visible { outline-offset: 2px; }
 row.om-row:disabled .row-title, row.om-row:disabled .row-subtitle { color: alpha(@om_text, 0.4); }
 
-/* The row is two lists, its header and the rows it opens to show; hover and focus are theirs. */
-row.expander-row, row.expander-row:hover { background: transparent; outline: none; padding: 0; }
+/* The row is two lists, its header and the rows it opens to show; hover is theirs. */
+row.expander-row, row.expander-row:hover { background: transparent; padding: 0; }
 row.expander-row > box > list > row { border-radius: 0; }
 row.expander-row > box > revealer > list {
   background: alpha(@om_text, 0.03);
@@ -674,7 +677,7 @@ row.expander-row > box > revealer > list > row:last-child { border-bottom: none;
   transition: background-color 160ms ease-out, border-color 160ms ease-out;
 }
 .result:hover { background: alpha(@om_text, 0.04); border-color: alpha(@om_border, 0.8); }
-.result:selected, .result:focus-visible { background: alpha(@om_accent, 0.12); border-color: alpha(@om_accent, 0.6); }
+.result:selected, .result:focus:focus-visible { background: alpha(@om_accent, 0.12); border-color: alpha(@om_accent, 0.6); }
 .result .result-title { font-weight: 650; }
 .result .snippet { color: @om_text; }
 
