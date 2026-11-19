@@ -1,0 +1,5 @@
+# Must fail: GTK logs a critical (dev/qa.sh target/debug/examples/gallery dev/qa/critical.jsonl exits 1).
+{"do":"state"}
+{"do":"action","name":"win.qa-critical"}
+{"do":"state"}
+{"do":"quit"}

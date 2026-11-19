@@ -7,6 +7,8 @@ pub mod dev;
 mod dialog;
 pub mod icons;
 mod layout;
+#[cfg(feature = "qa")]
+mod qa;
 mod rows;
 mod shell;
 #[cfg(test)]
@@ -41,6 +43,9 @@ pub fn application(
     // (Strata drops it the same way). GTK reads it once it starts, in `run`.
     // SAFETY: the caller is at the start of `main`, before any thread that could be reading the environment.
     unsafe { std::env::remove_var("GTK_THEME") };
+    // Read once, before GTK starts, so that what it logs from the start is counted.
+    #[cfg(feature = "qa")]
+    let qa = qa::wanted();
     glib::set_prgname(Some(name));
     glib::set_application_name(title);
     let app = gtk::Application::builder().application_id(id).build();
@@ -54,7 +59,13 @@ pub fn application(
     });
     app.connect_activate(move |app| match app.active_window() {
         Some(window) => window.present(),
-        None => open(app),
+        None => {
+            open(app);
+            #[cfg(feature = "qa")]
+            if qa {
+                qa::start(app);
+            }
+        }
     });
     app
 }

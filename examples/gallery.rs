@@ -10,6 +10,9 @@
 //!                                             change of a split, a stack of pages or an expander, a divider moved,
 //!                                             and the window's width once it is laid out (dev/keys.sh reads them)
 //!   OMUI_SHOT=<file.png>                      with feature `dev`: write the window through `omui::dev::shot`
+//!
+//! Built with feature `qa` it runs dev/qa.sh's scripts (dev/qa/*.jsonl), and has `win.qa-critical`, which makes GTK
+//! log a critical.
 
 use std::{cell::Cell, rc::Rc};
 
@@ -166,7 +169,7 @@ fn open(app: &gtk::Application) {
         }
     });
     let shell = Shell::new(&window, &split.widget);
-    shortcuts(app, &window, &stack);
+    shortcuts(app, &window, &stack, &shell);
 
     stack.add_named(&controls(), Some("controls"));
     stack.add_named(&icons(), Some("icons"));
@@ -257,7 +260,7 @@ fn open(app: &gtk::Application) {
 /// The keys an app binds in its window, each of the three ways GTK has: Delete from a shortcut in the content
 /// (managed, as Photos' viewer has), Ctrl+U as an application accelerator, F5 on the window itself. Each asks or
 /// toasts as the app would. None of them may reach the window while a dialog is open over it.
-fn shortcuts(app: &gtk::Application, window: &gtk::ApplicationWindow, content: &gtk::Stack) {
+fn shortcuts(app: &gtk::Application, window: &gtk::ApplicationWindow, content: &gtk::Stack, shell: &Rc<Shell>) {
     let delete = gtk::ShortcutController::new();
     delete.set_scope(gtk::ShortcutScope::Managed);
     delete.add_shortcut(gtk::Shortcut::new(
@@ -283,12 +286,25 @@ fn shortcuts(app: &gtk::Application, window: &gtk::ApplicationWindow, content: &
     let refresh = gtk::ShortcutController::new();
     refresh.add_shortcut(gtk::Shortcut::new(
         gtk::ShortcutTrigger::parse_string("F5"),
-        Some(gtk::CallbackAction::new(|_, _| {
-            trace("shortcut: refresh");
-            glib::Propagation::Stop
+        Some(gtk::CallbackAction::new({
+            let shell = Rc::downgrade(shell);
+            move |_, _| {
+                trace("shortcut: refresh");
+                if let Some(shell) = shell.upgrade() {
+                    shell.toast("Refreshed");
+                }
+                glib::Propagation::Stop
+            }
         })),
     ));
     window.add_controller(refresh);
+    // For dev/qa.sh's proof that a GLib critical fails a QA run: a real one, from GTK, as an app's mistake would log.
+    #[cfg(feature = "qa")]
+    {
+        let critical = gio::SimpleAction::new("qa-critical", None);
+        critical.connect_activate(|_, _| gtk::Box::default().remove(&gtk::Label::new(None)));
+        window.add_action(&critical);
+    }
 }
 
 /// What has the keyboard, for the trace: a button's label or tooltip, else what kind of widget it is and the first

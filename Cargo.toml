@@ -11,9 +11,13 @@ repository = "https://github.com/ferdousbhai/omui"
 [features]
 # `dev::shot`, for screenshot hooks in debug builds.
 dev = []
+# Scripted QA (`OMUI_QA=1`, dev/qa.sh): commands on stdin, answers on stdout. Off by default, so a release build
+# carries none of it.
+qa = ["dev", "dep:serde_json"]
 
 [dependencies]
 gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
+serde_json = { version = "1", optional = true }
 
 [build-dependencies]
 glib-build-tools = "0.22"

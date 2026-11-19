@@ -1,0 +1,71 @@
+# The gallery driven by role and name: dev/qa.sh target/debug/examples/gallery dev/qa/gallery.jsonl
+# (built with `cargo build --example gallery --features qa`, run from the repository, where the shots are written).
+
+# A dialog: its buttons by role and name, the window's F5 held back under it, typing, and Enter's default response.
+{"do":"select","role":"list-item","name":"Dialogs"}
+{"do":"click","role":"button","name":"Rename a folder…"}
+{"do":"wait","dialog":"Rename the folder"}
+{"do":"wait","role":"button","name":"Cancel","in":{"role":"dialog","name":"Rename the folder"},"visible":true,"sensitive":true}
+{"do":"wait","role":"button","name":"Rename","in":{"role":"dialog","name":"Rename the folder"},"visible":true,"sensitive":true}
+{"do":"wait","role":"text-box","in":{"role":"dialog","name":"Rename the folder"},"focused":true,"text":"Receipts"}
+{"do":"key","keys":"F5"}
+{"do":"wait","dialog":"Rename the folder","toasts":[]}
+{"do":"key","keys":"End"}
+{"do":"type","text":" 2"}
+{"do":"wait","role":"text-box","in":{"role":"dialog","name":"Rename the folder"},"text":"Receipts 2"}
+{"do":"shot","path":"target/qa-gallery-dialog.png"}
+{"do":"key","keys":"Return"}
+{"do":"wait","dialog":null}
+{"do":"wait","role":"label","name":"rename: Receipts 2"}
+{"do":"key","keys":"F5"}
+{"do":"wait","toasts":["Refreshed"]}
+
+# 0.5's log dialog: Alt+L clears it, and it stays open; Escape closes it.
+{"do":"click","role":"button","name":"Sync log…"}
+{"do":"wait","dialog":"Sync log"}
+{"do":"key","keys":"<Alt>l"}
+{"do":"wait","role":"text-box","in":{"role":"dialog","name":"Sync log"},"text":""}
+{"do":"wait","role":"button","name":"Clear","in":{"role":"dialog","name":"Sync log"},"sensitive":false}
+{"do":"wait","dialog":"Sync log"}
+{"do":"key","keys":"Escape"}
+{"do":"wait","dialog":null}
+
+# 0.5's banners, then toasts: three at most, and an Undo that makes room for the fourth.
+{"do":"select","role":"list-item","name":"States"}
+{"do":"wait","role":"button","name":"Clone…","visible":true,"sensitive":false}
+{"do":"wait","role":"button","name":"Sign in","visible":true,"sensitive":true}
+{"do":"click","role":"button","name":"Copy, delete, download and delete"}
+{"do":"wait","toasts":["Copied","Moved harbour.jpg to Recently Deleted","Saved pier.jpg to Downloads"]}
+{"do":"click","role":"button","name":"Undo","in":{"role":"alert","name":"Moved harbour.jpg to Recently Deleted"}}
+{"do":"wait","toasts":["Copied","Saved pier.jpg to Downloads","Moved shore.jpg to Recently Deleted"]}
+
+# Nav: a page pushed, and Escape back.
+{"do":"select","role":"list-item","name":"Pages"}
+{"do":"click","role":"list-item","name":"Create an account"}
+{"do":"wait","role":"button","name":"Create","visible":true}
+{"do":"key","keys":"Escape"}
+{"do":"wait","role":"button","name":"Create","visible":false}
+{"do":"wait","role":"list-item","name":"Create an account","visible":true}
+
+# 0.5's divider: a Tab stop whose Right and Home move it (the search box is the sidebar's width less its padding).
+{"do":"select","role":"list-item","name":"Split"}
+{"do":"wait","role":"search-box","name":"Search contacts","width":251}
+{"do":"focus","role":"separator","name":"Sidebar width"}
+{"do":"key","keys":"Right"}
+{"do":"wait","role":"search-box","name":"Search contacts","width":267}
+{"do":"key","keys":"Home"}
+{"do":"wait","role":"search-box","name":"Search contacts","width":211}
+
+# A narrow window: both splits collapse. The contacts list shows alone, a contact replaces it, and Escape goes back.
+{"do":"wait","role":"button","name":"Contacts","visible":false}
+{"do":"resize","width":560,"height":700}
+{"do":"wait","size":[560,700]}
+{"do":"set","role":"toggle-button","name":"Sidebar","checked":false}
+{"do":"wait","role":"search-box","name":"Search contacts","visible":true}
+{"do":"click","role":"list-item","name":"Grace Hopper"}
+{"do":"wait","role":"button","name":"Contacts","visible":true}
+{"do":"wait","role":"search-box","name":"Search contacts","visible":false}
+{"do":"shot","path":"target/qa-gallery-narrow.png"}
+{"do":"key","keys":"Escape"}
+{"do":"wait","role":"search-box","name":"Search contacts","visible":true}
+{"do":"quit"}
