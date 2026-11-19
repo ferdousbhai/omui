@@ -102,7 +102,7 @@ dropdown arrow, menubutton arrow, modelbutton arrow, expander, sort-indicator, n
 
 /* The others are images GTK names from the icon theme, which no property redirects: the themed icon is faded out
    and the bundled one drawn behind it, in the same colour. */
-spinbutton > button > image, entry.search > image, calendar > header > button > image,
+spinbutton > button > image, entry.search > image, entry.password > image, calendar > header > button > image,
 dropdown popover listview > row > box > image:last-child {
   background-position: center;
   background-repeat: no-repeat;
@@ -120,6 +120,14 @@ entry.search > image:first-child {
 }
 entry.search > image:last-child {
   background-image: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-x-symbolic.svg"));
+}
+/* A password entry's own button shows the text and hides it again under one icon: GTK changes the icon's name,
+   which no selector sees. `password_row` has a button that changes. */
+entry.password > image {
+  background-image: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-eye-symbolic.svg"));
+}
+entry.password > image.caps-lock-indicator {
+  background-image: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-arrow-big-up-dash-symbolic.svg"));
 }
 calendar > header > button:first-child > image, calendar > header > stack + button + button > image {
   background-image: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-chevron-left-symbolic.svg"));
@@ -211,6 +219,8 @@ button.flat:active, button.flat:checked, button.header-action:active, button.hea
 button.flat:disabled, button.header-action:disabled { background: transparent; border-color: transparent; }
 
 button.header-action { min-width: 24px; padding: 4px; }
+/* A menu button that is an icon is as wide as an icon button; without a frame it is one in a header bar. */
+menubutton > button.image-button { min-width: 24px; padding: 4px; }
 button.pill { border-radius: 999px; padding: 4px 18px; }
 button.circular { border-radius: 999px; min-width: 24px; padding: 4px; }
 
@@ -571,6 +581,88 @@ button.sidebar-footer {
 }
 button.sidebar-footer:hover { background: alpha(@om_text, 0.06); color: @om_text; }
 .sidebar-footer image { color: @om_accent; }
+
+/* -------------------------------------------------------------------------------------------- panes and pages -- */
+/* A collapsed split shows one pane across its whole width, so the sidebar has no neighbour to be ruled off from. */
+.om-split.collapsed .sidebar { border-right: none; }
+
+/* What `page` scrolls: groups one under another. */
+.page { border-spacing: 18px; padding: 24px 16px; }
+/* In a dialog the page is the dialog's own widget, which has its margins already. */
+.dialog-extra .page { padding: 0 0 2px; }
+
+/* `tabs`: the pages of a stack, in a header bar or above the stack. */
+.tabs { border-spacing: 2px; }
+button.tab { background: transparent; border-color: transparent; color: @om_dim_text; padding: 3px 10px; }
+button.tab:hover { background: alpha(@om_text, 0.06); color: @om_text; }
+button.tab:checked { background: alpha(@om_accent, 0.18); color: @om_text; font-weight: 650; }
+button.tab:checked image { color: @om_accent; }
+.tabs.narrow > button.tab { padding: 3px 8px; }
+
+/* ----------------------------------------------------------------------------------------------- groups and rows -- */
+.group { border-spacing: 8px; }
+.group-header { border-spacing: 12px; }
+.group-title { font-weight: 650; }
+.group-description { color: @om_dim_text; font-size: 0.92em; }
+
+/* A bordered list of rows ruled off from each other: a Group's, or a list box of the app's. */
+.boxed-list {
+  background: alpha(@om_text, 0.03);
+  border: 1px solid alpha(@om_border, 0.6);
+  border-radius: 6px;
+}
+.boxed-list > row { border-bottom: 1px solid alpha(@om_border, 0.35); border-radius: 0; }
+.boxed-list > row:first-child { border-radius: 5px 5px 0 0; }
+.boxed-list > row:last-child { border-bottom: none; border-radius: 0 0 5px 5px; }
+.boxed-list > row:only-child { border-radius: 5px; }
+
+row.om-row { min-height: 30px; padding: 7px 12px; }
+row.om-row > box, .row-side { border-spacing: 10px; }
+.row-text { border-spacing: 1px; }
+.row-subtitle { color: @om_dim_text; font-size: 0.92em; }
+.om-row .row-side > image { color: @om_dim_text; -gtk-icon-size: 16px; }
+/* A value and what it is: the title names it in small, and the subtitle is the text. */
+row.property .row-title, row.entry-row .row-title { color: @om_dim_text; font-size: 0.85em; }
+row.property .row-subtitle { color: @om_text; font-size: 1em; }
+/* The field of an entry row is the row: it has no box of its own, and the row shows where the keyboard is. */
+row.entry-row entry {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  min-height: 20px;
+  outline: none;
+  padding: 0;
+}
+row.entry-row:focus-within { outline: 2px solid @om_accent; outline-offset: -2px; }
+/* A subtitle that can be selected has the row's outline while the keyboard is in it, not one of its own inside. */
+row.om-row .row-subtitle:focus-visible { outline: none; }
+row.om-row:disabled .row-title, row.om-row:disabled .row-subtitle { color: alpha(@om_text, 0.4); }
+
+/* The row is two lists, its header and the rows it opens to show; hover and focus are theirs. */
+row.expander-row, row.expander-row:hover { background: transparent; outline: none; padding: 0; }
+row.expander-row > box > list > row { border-radius: 0; }
+row.expander-row > box > revealer > list {
+  background: alpha(@om_text, 0.03);
+  border-top: 1px solid alpha(@om_border, 0.35);
+}
+row.expander-row > box > revealer > list > row { border-bottom: 1px solid alpha(@om_border, 0.35); border-radius: 0; }
+row.expander-row > box > revealer > list > row:last-child { border-bottom: none; }
+
+/* --------------------------------------------------------------------------------------------------- avatars -- */
+.avatar { background: alpha(@om_accent, 0.28); border-radius: 999px; color: @om_text; font-weight: 650; }
+.avatar-1 { background: alpha(@om_success, 0.28); }
+.avatar-2 { background: alpha(@om_warning, 0.28); }
+.avatar-3 { background: alpha(@om_danger, 0.28); }
+.avatar-4 { background: alpha(mix(@om_accent, @om_danger, 0.5), 0.28); }
+.avatar-5 { background: alpha(mix(@om_accent, @om_success, 0.5), 0.28); }
+/* No name to take letters from. */
+.avatar.empty {
+  background-image: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-user-symbolic.svg"));
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 50% 50%;
+  color: @om_dim_text;
+}
 
 /* ------------------------------------------------------------------------------------------------ result rows -- */
 .result {

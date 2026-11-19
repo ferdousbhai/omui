@@ -11,7 +11,7 @@ theming approach it follows.
 
 ```toml
 [dependencies]
-omui = { git = "https://github.com/ferdousbhai/omui", rev = "<40-hex>" } # v0.2.0
+omui = { git = "https://github.com/ferdousbhai/omui", rev = "<40-hex>" } # v0.3.0
 ```
 
 Building needs `glib-compile-resources` (on Arch it is part of `glib2`).
@@ -43,18 +43,24 @@ A packaged app carries the Strata and Lucide notices with it, since its binary h
 the Lucide icons: ship [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)'s two entries and the texts under
 `data/licenses/` among the app's own notices.
 
-## What is in 0.2
+## What is in 0.3
 
 | | |
 |---|---|
 | `application`, `main`, `background` | One-window application with the theme installed; a binary that is a window with no arguments and a command line with some; work on a thread with the result on the main loop |
 | `Theme`, `Tokens`, `blend`, `omarchy_state_dir` | The installed look, its colours, and a listener for what CSS cannot reach |
-| `icons::name::*`, `icon`, `icon_button`, `data_uri` | 38 bundled Lucide icons as GTK symbolic icons |
+| `icons::name::*`, `icon`, `icon_button`, `data_uri` | 67 bundled Lucide icons as GTK symbolic icons |
 | `Shell`, `header`, `Title`, `claim_titlebar` | The window's overlay with toasts, and its header bar |
 | `Dialog`, `WeakDialog`, `confirm`, `Appearance` | A dialog drawn inside its window, and the question most of them are |
-| `label`, `badge`, `sidebar_row`, `clear`, `set_class` | Small builders |
+| `Split`, `Nav`, `tabs`, `on_narrow` | A sidebar beside content that becomes one pane in a narrow window; pages pushed one over another; the pages of a stack as tabs; a widget's width crossing a threshold |
+| `clamp`, `page` | A child kept to a readable width; a scrolling column of groups |
+| `Group`, `Row`, `entry_row`, `password_row`, `switch_row`, `combo_row`, `ExpanderRow` | A titled, bordered list and the rows of a settings page or a form |
+| `label`, `badge`, `avatar`, `spinner`, `sidebar_row`, `clear`, `set_class` | Small builders |
 | `Banner`, `EmptyState` | A message bar; what an empty page or list shows |
 | `dev::shot` (feature `dev`) | A widget written to a PNG, for before-and-after pictures |
+
+With these an app that was built on libadwaita needs none of it: each has the methods of the libadwaita widget it
+stands for, which its documentation names.
 
 ## Theme
 
@@ -96,6 +102,59 @@ dialog with no heading takes its name for a screen reader from `set_title`.
 A dialog owns its widgets, so a handler on one of them holds it weakly: `dialog.downgrade()`, or `#[weak] dialog` in
 `glib::clone!`.
 
+## Panes and pages
+
+```rust
+let split = omui::Split::new(&sidebar, &content, (240, 320), Some(600));
+list.connect_row_activated(glib::clone!(#[weak] split, move |_, _| split.set_show_content(true)));
+split.connect_changed(glib::clone!(#[weak] back, move |split| back.set_visible(split.is_collapsed())));
+let shell = omui::Shell::new(&window, &split.widget);
+```
+
+`Split` puts a sidebar beside the content: a quarter of the width, within the two limits. Narrower than the
+threshold, or than the two panes need, it is collapsed and shows one pane. It serves both ways libadwaita has of
+using one:
+
+- A list and its detail (`adw::NavigationSplitView`). Collapsed, it shows the list; `set_show_content(true)` shows
+  the detail in its place, and Escape, Alt+Left or the app's back button (`set_show_content(false)`) the list again.
+- A sidebar that is put away (`adw::OverlaySplitView`): `set_show_sidebar`, from a toggle button the app keeps in
+  step in `connect_changed`. Collapsed, the content is shown while the sidebar is away.
+
+The keyboard goes with the pane that is shown, and comes back to where it was. Tab starts in the sidebar.
+
+`Nav` is a `gtk::Stack` with `push`, `pop` and `pop_to_root`; Escape and Alt+Left pop. `tabs(&stack)` is a row of
+tabs for a stack's pages, for a header bar; in a window under 700 pixels a tab with an icon shows the icon alone.
+`on_narrow(&widget, 640, |narrow| …)` is for whatever else changes with the width.
+
+A `Split` and a `Nav` are `Rc`s that the app keeps, as it keeps its `Shell`: the widget alone does not follow the
+width or answer the keys. A split can only collapse if the window can get that narrow, so content that will not
+shrink (a wide row of buttons outside a scrolled window) keeps it wide.
+
+## Groups and rows
+
+```rust
+let (scroll, column) = omui::page(640);
+let account = omui::Group::new("Account", "Where your files are kept.");
+let (name_row, name) = omui::entry_row("Name", "Ada");
+let (secret_row, secret) = omui::password_row("Secret access key");
+let (sync_row, sync) = omui::switch_row("Sync settings too", "Themes and key bindings", true);
+for row in [&name_row, &secret_row, &sync_row] {
+    account.add(&row.widget);
+}
+column.append(&account.widget);
+```
+
+A `Group` is a title, a description, and a bordered list (`boxed-list`) of rows; an app's own `gtk::ListBox` with
+that class takes the same rows. `Row` has a title, a subtitle, and widgets before and after them, and
+`connect_activated` for a click or Enter. The rows that carry a control return it, a plain GTK widget, beside the row:
+`gtk::Entry`, `gtk::PasswordEntry`, `gtk::Switch`, `gtk::DropDown`. Titles and subtitles are plain text, not markup.
+
+Tab goes from row to row. A row that carries a control is one stop, the control, and a click anywhere on the row
+goes to it. `ExpanderRow` opens to show more rows under it.
+
+In a dialog, rows go in a `Group` with no title, and a whole page of groups is the dialog's widget:
+`dialog.set_extra_child(Some(scroll.upcast_ref()))`.
+
 ## GTK's own widgets
 
 `omui.css` has rules for the stock widgets an app is likely to use, so they need no classes: button, entry, search
@@ -104,20 +163,26 @@ button, popover and popover menu, notebook, calendar, frame, expander, progress 
 selection, and the disabled state of each. A text view is bare, so that an editor can fill its pane; inside a `Frame`
 it is a field of several lines.
 
-The arrows, checks and steppers GTK draws for them are the bundled icons, whatever icon theme the desktop has. One
-is not: the eye of a password entry is the icon theme's. In a drop-down the check is the one GTK's own rows end with;
-a row from the app's factory keeps its images.
+The arrows, checks and steppers GTK draws for them are the bundled icons, whatever icon theme the desktop has. The
+eye of a `gtk::PasswordEntry` is the bundled one too, and the same whether the text is shown or hidden, since
+nothing tells CSS which; `password_row` has a button whose icon changes. In a drop-down the check is the one GTK's
+own rows end with; a row from the app's factory keeps its images.
+
+A menu button that is an icon (`gtk::MenuButton` with `icon_name`) is as wide as an icon button, and with
+`has_frame(false)` is one in a header bar.
 
 ## Style classes
 
 GTK and Adwaita names are kept where one exists.
 
-- Buttons: `suggested-action` `destructive-action` `flat` `pill` `circular` `osd` `header-action` `chip`
+- Buttons: `suggested-action` `destructive-action` `flat` `pill` `circular` `osd` `header-action` `chip` `tab`
 - Text: `dim-label` `title-1` `title-2` `title-4` `heading` `caption` `numeric` `monospace` `error` `warning`
   `success` `accent` `page-title` `section-title` `meta` `status-line`
 - Containers: `sidebar` `sidebar-row` `sidebar-footer` `toolbar` `result` `result-title` `snippet` `badge`
   `empty-state` `compact` `banner` `toast` `om-shell` `search-large` `dialog` `dialog-backdrop` `dialog-heading`
-  `dialog-body` `dialog-extra` `dialog-actions`
+  `dialog-body` `dialog-extra` `dialog-actions` `om-split` `collapsed` `page` `tabs` `narrow` `group` `group-title`
+  `group-description` `boxed-list` `om-row` `row-title` `row-subtitle` `property` `entry-row` `expander-row`
+  `expanded` `avatar`
 
 Three of them mean something narrower than the same name in an app's old stylesheet:
 
@@ -145,13 +210,16 @@ dev/preview.sh /tmp/dark.png
 dev/preview.sh /tmp/light.png /usr/share/omarchy/themes/catppuccin-latte
 OMUI_GALLERY_PAGE=icons dev/preview.sh /tmp/live.png /usr/share/omarchy/themes/gruvbox /usr/share/omarchy/themes/white
 OMUI_GALLERY_OPEN=rename dev/preview.sh /tmp/dialog.png
+OMUI_PREVIEW_SIZE=480x820 OMUI_GALLERY_PAGE=split dev/preview.sh /tmp/narrow.png
 ```
 
-The fourth form switches the theme while the gallery runs and writes `/tmp/live-switched.png` as well. The last
-opens one of the gallery's dialogs, its drop-down or a menu for the picture; `examples/gallery.rs` lists them.
+The fourth form switches the theme while the gallery runs and writes `/tmp/live-switched.png` as well. The fifth
+opens one of the gallery's dialogs, its drop-down or a menu for the picture; `examples/gallery.rs` lists them. The
+last is a narrow window, where the splits show one pane and the tabs their icons.
 
-`dev/keys.sh` presses Tab, Enter, Escape and mnemonics in the gallery's dialogs, in the same nested desktop, and checks where
-the focus went and what was answered. It needs `wtype`.
+`dev/keys.sh` walks the gallery with the keyboard alone, in the same nested desktop: Tab, Enter, Escape, Alt+Left and
+mnemonics in its dialogs, rows, tabs, pages and splits, wide and narrow. It checks where the focus went, what was
+answered, and how each split and stack of pages changed. It needs `wtype`.
 
 The icons under `data/icons` are generated from Lucide by `dev/outline` and committed; its source says how to run it.
 

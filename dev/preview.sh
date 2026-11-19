@@ -13,6 +13,7 @@ set -Eeuo pipefail
 #
 #   OMUI_GALLERY_PAGE, OMUI_GALLERY_OPEN, OMUI_GALLERY_TRACE   the gallery's own (examples/gallery.rs)
 #   OMUI_PREVIEW_BINARY the gallery to run (default target/debug/examples/gallery)
+#   OMUI_PREVIEW_SIZE   the size of the window and of the picture (default 1280x820)
 #   OMUI_PREVIEW_SETTLE seconds to wait before each picture (default 4)
 #   OMUI_PREVIEW_KEYS   keys to press in the gallery before the first picture, as `wtype -k` names them, each with
 #                       an optional modifier ("Tab shift+Tab Return")
@@ -40,6 +41,8 @@ parent_runtime=${XDG_RUNTIME_DIR:?preview: XDG_RUNTIME_DIR is required}
 parent_display=${WAYLAND_DISPLAY:?preview: run this from a Wayland desktop}
 parent_socket=$parent_runtime/$parent_display
 settle=${OMUI_PREVIEW_SETTLE:-4}
+size=${OMUI_PREVIEW_SIZE:-1280x820}
+[[ $size =~ ^[0-9]+x[0-9]+$ ]] || { echo "preview: OMUI_PREVIEW_SIZE is <width>x<height>" >&2; exit 2; }
 
 root=""
 runtime=""
@@ -117,7 +120,7 @@ export DBUS_SESSION_BUS_ADDRESS=${dbus_details[0]}
 dbus_pid=${dbus_details[1]}
 
 printf '%s\n' \
-  'hl.monitor({ output = "", mode = "1280x820@60", position = "auto", scale = 1 })' \
+  "hl.monitor({ output = \"\", mode = \"$size@60\", position = \"auto\", scale = 1 })" \
   'hl.config({' \
   '  general = { gaps_in = 0, gaps_out = 0, border_size = 0 },' \
   '  decoration = { rounding = 0, shadow = { enabled = false }, blur = { enabled = false } },' \

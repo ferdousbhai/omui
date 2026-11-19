@@ -13,38 +13,67 @@ pub(crate) const RESOURCE_PATH: &str = "/io/github/ferdousbhai/omui/icons";
 pub mod name {
     pub const ADD: &str = "om-plus-symbolic";
     pub const BACK: &str = "om-chevron-left-symbolic";
+    pub const BATTERY_CHARGING: &str = "om-battery-charging-symbolic";
+    pub const BATTERY_EMPTY: &str = "om-battery-symbolic";
+    pub const BATTERY_FULL: &str = "om-battery-full-symbolic";
+    pub const BATTERY_LOW: &str = "om-battery-low-symbolic";
+    pub const BATTERY_MEDIUM: &str = "om-battery-medium-symbolic";
     pub const BOOK: &str = "om-book-open-symbolic";
     pub const CALENDAR: &str = "om-calendar-symbolic";
+    pub const CAMERA: &str = "om-camera-symbolic";
+    pub const CAPS_LOCK: &str = "om-arrow-big-up-dash-symbolic";
     pub const CHAT: &str = "om-message-circle-symbolic";
     pub const CHECK: &str = "om-check-symbolic";
     pub const CHECKED: &str = "om-square-check-symbolic";
     pub const CLOCK: &str = "om-clock-symbolic";
     pub const CLOSE: &str = "om-x-symbolic";
     pub const CLOUD: &str = "om-cloud-symbolic";
+    pub const COMPUTER: &str = "om-monitor-symbolic";
     pub const COPY: &str = "om-copy-symbolic";
     pub const DELETE: &str = "om-trash-2-symbolic";
     pub const DOCUMENT: &str = "om-file-text-symbolic";
     pub const DOWN: &str = "om-chevron-down-symbolic";
+    pub const DOWNLOAD: &str = "om-download-symbolic";
+    pub const DRIVE: &str = "om-hard-drive-symbolic";
     pub const EDIT: &str = "om-pencil-symbolic";
     pub const EXTERNAL_LINK: &str = "om-external-link-symbolic";
+    pub const FILE: &str = "om-file-symbolic";
     pub const FIT: &str = "om-maximize-symbolic";
     pub const FOLDER: &str = "om-folder-symbolic";
+    pub const FOLDER_OPEN: &str = "om-folder-open-symbolic";
     pub const FORWARD: &str = "om-chevron-right-symbolic";
+    pub const GRID: &str = "om-layout-grid-symbolic";
+    pub const HEADPHONES: &str = "om-headphones-symbolic";
+    pub const HIDE: &str = "om-eye-off-symbolic";
     pub const IMAGE: &str = "om-image-symbolic";
     pub const INFO: &str = "om-info-symbolic";
+    pub const KEY: &str = "om-key-round-symbolic";
+    pub const LOCATE: &str = "om-locate-fixed-symbolic";
     pub const LOCATION: &str = "om-map-pin-symbolic";
+    pub const LOCK: &str = "om-lock-symbolic";
     pub const MAIL: &str = "om-mail-symbolic";
+    pub const MENU: &str = "om-menu-symbolic";
+    pub const MORE: &str = "om-ellipsis-vertical-symbolic";
     pub const OFFLINE: &str = "om-cloud-off-symbolic";
     pub const OK: &str = "om-circle-check-symbolic";
+    pub const PHONE: &str = "om-smartphone-symbolic";
+    pub const PLAY: &str = "om-play-symbolic";
+    pub const QUESTION: &str = "om-circle-question-mark-symbolic";
     pub const REFRESH: &str = "om-refresh-cw-symbolic";
     pub const REMOVE: &str = "om-minus-symbolic";
+    pub const SAVE: &str = "om-save-symbolic";
     pub const SEARCH: &str = "om-search-symbolic";
     pub const SETTINGS: &str = "om-settings-symbolic";
+    pub const SHOW: &str = "om-eye-symbolic";
     pub const SIDEBAR: &str = "om-panel-left-symbolic";
     pub const STAR: &str = "om-star-symbolic";
     pub const STARRED: &str = "om-star-filled-symbolic";
+    pub const TABLET: &str = "om-tablet-symbolic";
+    pub const UNAVAILABLE: &str = "om-ban-symbolic";
     pub const UP: &str = "om-chevron-up-symbolic";
+    pub const UPLOAD: &str = "om-upload-symbolic";
     pub const USER: &str = "om-user-symbolic";
+    pub const USERS: &str = "om-users-symbolic";
     pub const VIDEO: &str = "om-video-symbolic";
     pub const WARNING: &str = "om-triangle-alert-symbolic";
     pub const ZOOM_IN: &str = "om-zoom-in-symbolic";
@@ -54,38 +83,67 @@ pub mod name {
     pub const ALL: &[&str] = &[
         ADD,
         BACK,
+        BATTERY_CHARGING,
+        BATTERY_EMPTY,
+        BATTERY_FULL,
+        BATTERY_LOW,
+        BATTERY_MEDIUM,
         BOOK,
         CALENDAR,
+        CAMERA,
+        CAPS_LOCK,
         CHAT,
         CHECK,
         CHECKED,
         CLOCK,
         CLOSE,
         CLOUD,
+        COMPUTER,
         COPY,
         DELETE,
         DOCUMENT,
         DOWN,
+        DOWNLOAD,
+        DRIVE,
         EDIT,
         EXTERNAL_LINK,
+        FILE,
         FIT,
         FOLDER,
+        FOLDER_OPEN,
         FORWARD,
+        GRID,
+        HEADPHONES,
+        HIDE,
         IMAGE,
         INFO,
+        KEY,
+        LOCATE,
         LOCATION,
+        LOCK,
         MAIL,
+        MENU,
+        MORE,
         OFFLINE,
         OK,
+        PHONE,
+        PLAY,
+        QUESTION,
         REFRESH,
         REMOVE,
+        SAVE,
         SEARCH,
         SETTINGS,
+        SHOW,
         SIDEBAR,
         STAR,
         STARRED,
+        TABLET,
+        UNAVAILABLE,
         UP,
+        UPLOAD,
         USER,
+        USERS,
         VIDEO,
         WARNING,
         ZOOM_IN,

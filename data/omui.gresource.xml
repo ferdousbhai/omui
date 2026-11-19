@@ -1,40 +1,69 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <gresources>
   <gresource prefix="/io/github/ferdousbhai/omui">
+    <file>icons/scalable/actions/om-arrow-big-up-dash-symbolic.svg</file>
+    <file>icons/scalable/actions/om-ban-symbolic.svg</file>
+    <file>icons/scalable/actions/om-battery-charging-symbolic.svg</file>
+    <file>icons/scalable/actions/om-battery-full-symbolic.svg</file>
+    <file>icons/scalable/actions/om-battery-low-symbolic.svg</file>
+    <file>icons/scalable/actions/om-battery-medium-symbolic.svg</file>
+    <file>icons/scalable/actions/om-battery-symbolic.svg</file>
     <file>icons/scalable/actions/om-book-open-symbolic.svg</file>
     <file>icons/scalable/actions/om-calendar-symbolic.svg</file>
+    <file>icons/scalable/actions/om-camera-symbolic.svg</file>
     <file>icons/scalable/actions/om-check-symbolic.svg</file>
     <file>icons/scalable/actions/om-chevron-down-symbolic.svg</file>
     <file>icons/scalable/actions/om-chevron-left-symbolic.svg</file>
     <file>icons/scalable/actions/om-chevron-right-symbolic.svg</file>
     <file>icons/scalable/actions/om-chevron-up-symbolic.svg</file>
     <file>icons/scalable/actions/om-circle-check-symbolic.svg</file>
+    <file>icons/scalable/actions/om-circle-question-mark-symbolic.svg</file>
     <file>icons/scalable/actions/om-clock-symbolic.svg</file>
     <file>icons/scalable/actions/om-cloud-off-symbolic.svg</file>
     <file>icons/scalable/actions/om-cloud-symbolic.svg</file>
     <file>icons/scalable/actions/om-copy-symbolic.svg</file>
+    <file>icons/scalable/actions/om-download-symbolic.svg</file>
+    <file>icons/scalable/actions/om-ellipsis-vertical-symbolic.svg</file>
     <file>icons/scalable/actions/om-external-link-symbolic.svg</file>
+    <file>icons/scalable/actions/om-eye-off-symbolic.svg</file>
+    <file>icons/scalable/actions/om-eye-symbolic.svg</file>
+    <file>icons/scalable/actions/om-file-symbolic.svg</file>
     <file>icons/scalable/actions/om-file-text-symbolic.svg</file>
+    <file>icons/scalable/actions/om-folder-open-symbolic.svg</file>
     <file>icons/scalable/actions/om-folder-symbolic.svg</file>
+    <file>icons/scalable/actions/om-hard-drive-symbolic.svg</file>
+    <file>icons/scalable/actions/om-headphones-symbolic.svg</file>
     <file>icons/scalable/actions/om-image-symbolic.svg</file>
     <file>icons/scalable/actions/om-info-symbolic.svg</file>
+    <file>icons/scalable/actions/om-key-round-symbolic.svg</file>
+    <file>icons/scalable/actions/om-layout-grid-symbolic.svg</file>
+    <file>icons/scalable/actions/om-locate-fixed-symbolic.svg</file>
+    <file>icons/scalable/actions/om-lock-symbolic.svg</file>
     <file>icons/scalable/actions/om-mail-symbolic.svg</file>
     <file>icons/scalable/actions/om-map-pin-symbolic.svg</file>
     <file>icons/scalable/actions/om-maximize-symbolic.svg</file>
+    <file>icons/scalable/actions/om-menu-symbolic.svg</file>
     <file>icons/scalable/actions/om-message-circle-symbolic.svg</file>
     <file>icons/scalable/actions/om-minus-symbolic.svg</file>
+    <file>icons/scalable/actions/om-monitor-symbolic.svg</file>
     <file>icons/scalable/actions/om-panel-left-symbolic.svg</file>
     <file>icons/scalable/actions/om-pencil-symbolic.svg</file>
+    <file>icons/scalable/actions/om-play-symbolic.svg</file>
     <file>icons/scalable/actions/om-plus-symbolic.svg</file>
     <file>icons/scalable/actions/om-refresh-cw-symbolic.svg</file>
+    <file>icons/scalable/actions/om-save-symbolic.svg</file>
     <file>icons/scalable/actions/om-search-symbolic.svg</file>
     <file>icons/scalable/actions/om-settings-symbolic.svg</file>
+    <file>icons/scalable/actions/om-smartphone-symbolic.svg</file>
     <file>icons/scalable/actions/om-square-check-symbolic.svg</file>
     <file>icons/scalable/actions/om-star-filled-symbolic.svg</file>
     <file>icons/scalable/actions/om-star-symbolic.svg</file>
+    <file>icons/scalable/actions/om-tablet-symbolic.svg</file>
     <file>icons/scalable/actions/om-trash-2-symbolic.svg</file>
     <file>icons/scalable/actions/om-triangle-alert-symbolic.svg</file>
+    <file>icons/scalable/actions/om-upload-symbolic.svg</file>
     <file>icons/scalable/actions/om-user-symbolic.svg</file>
+    <file>icons/scalable/actions/om-users-symbolic.svg</file>
     <file>icons/scalable/actions/om-video-symbolic.svg</file>
     <file>icons/scalable/actions/om-x-symbolic.svg</file>
     <file>icons/scalable/actions/om-zoom-in-symbolic.svg</file>

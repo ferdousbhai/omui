@@ -6,6 +6,8 @@
 pub mod dev;
 mod dialog;
 pub mod icons;
+mod layout;
+mod rows;
 mod shell;
 pub mod theme;
 mod widgets;
@@ -15,9 +17,11 @@ use gtk::{gdk, gio, glib, prelude::*};
 
 pub use dialog::{Appearance, Dialog, WeakDialog, confirm};
 pub use icons::{data_uri, icon, icon_button};
+pub use layout::{Nav, Split, clamp, on_narrow, page, tabs};
+pub use rows::{ExpanderRow, Group, Row, combo_row, entry_row, password_row, switch_row};
 pub use shell::{Shell, Title, claim_titlebar, header};
 pub use theme::{Theme, Tokens, blend, omarchy_state_dir};
-pub use widgets::{Banner, EmptyState, badge, clear, label, set_class, sidebar_row};
+pub use widgets::{Banner, EmptyState, avatar, badge, clear, label, set_class, sidebar_row, spinner};
 
 /// The application `id`, named `name` as its command line is (logs, X11 WM_CLASS) and shown as `title`. Its windows
 /// are styled by omui's stylesheet and then `app_css`. It has one window: `open` builds and presents it on the first

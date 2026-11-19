@@ -87,6 +87,55 @@ pub fn badge(text: &str, class: &str) -> gtk::Label {
     badge
 }
 
+/// A round badge with the initials of `name`, `size` pixels across, in one of six tints picked by the name
+/// (`adw::Avatar`). With no name it shows a person. It is decoration: the name itself is beside it.
+pub fn avatar(size: i32, name: &str) -> gtk::Label {
+    let initials = initials(name);
+    let avatar = gtk::Label::builder()
+        .label(&initials)
+        .css_classes(["avatar", &format!("avatar-{}", tint(name))])
+        .width_request(size)
+        .height_request(size)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .accessible_role(gtk::AccessibleRole::Presentation)
+        .build();
+    set_class(&avatar, "empty", initials.is_empty());
+    // The letters grow with the circle, which CSS cannot tie to a widget's size.
+    let attributes = gtk::pango::AttrList::new();
+    let letters = f64::from(size) * 0.4 * f64::from(gtk::pango::SCALE);
+    attributes.insert(gtk::pango::AttrSize::new_size_absolute(letters as i32));
+    avatar.set_attributes(Some(&attributes));
+    avatar
+}
+
+/// The first letter of the first word and of the last, in capitals.
+fn initials(name: &str) -> String {
+    let mut words = name
+        .split_whitespace()
+        .filter_map(|word| word.chars().find(|c| c.is_alphanumeric()));
+    let first = words.next();
+    let last = words.next_back();
+    first.into_iter().chain(last).flat_map(char::to_uppercase).collect()
+}
+
+/// Which of the tints `avatar-0` to `avatar-5` a name gets: the same one every time it is shown.
+fn tint(name: &str) -> u32 {
+    name.bytes()
+        .fold(0u32, |hash, byte| hash.wrapping_mul(31).wrapping_add(byte.into()))
+        % 6
+}
+
+/// A spinner that turns for as long as it is on screen (`adw::Spinner`).
+pub fn spinner() -> gtk::Spinner {
+    let spinner = gtk::Spinner::new();
+    // Turning only while it is on screen.
+    spinner.connect_map(|spinner| spinner.start());
+    spinner.connect_unmap(|spinner| spinner.stop());
+    spinner.update_property(&[gtk::accessible::Property::Label("Loading")]);
+    spinner
+}
+
 /// A message across the top of a window or pane with up to a few buttons, hidden until revealed (`adw::Banner`).
 pub struct Banner {
     pub widget: gtk::Revealer,
@@ -212,5 +261,28 @@ impl EmptyState {
     pub fn set_description(&self, description: &str) {
         self.description.set_label(description);
         self.description.set_visible(!description.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initials_are_the_first_and_last_words() {
+        assert_eq!(initials("Ada Lovelace"), "AL");
+        assert_eq!(initials("ada king lovelace"), "AL");
+        assert_eq!(initials("Plato"), "P");
+        assert_eq!(initials("  (Dr.) Émile  "), "DÉ");
+        assert_eq!(initials("+1 555 0100"), "10");
+        assert_eq!(initials(""), "");
+        assert_eq!(initials("…"), "");
+    }
+
+    #[test]
+    fn a_name_keeps_its_tint_and_names_spread_over_all_six() {
+        assert_eq!(tint("Ada Lovelace"), tint("Ada Lovelace"));
+        let used: std::collections::BTreeSet<u32> = (0..100).map(|n| tint(&format!("Person {n}"))).collect();
+        assert_eq!(used.into_iter().collect::<Vec<_>>(), [0, 1, 2, 3, 4, 5]);
     }
 }
