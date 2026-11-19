@@ -30,11 +30,13 @@ check() {
 }
 
 # Tab and Shift+Tab go round inside the dialog; Escape closes it, answers nothing, and the focus returns.
-check confirm 'Tab Tab shift+Tab shift+Tab Escape' \
+check confirm 'Tab Tab shift+ISO_Left_Tab shift+ISO_Left_Tab Escape' \
   'focus: row|focus: Cancel|focus: Discard|focus: Cancel|focus: Discard|focus: Cancel|focus: row'
 # Enter gives the default response: Cancel when the action is destructive, the action when it is not.
 check confirm 'Return' 'focus: row|focus: Cancel|focus: row'
-check send 'Return' 'focus: row|focus: Send|focus: row|answer: sent'
+check send 'Return' 'focus: row|focus: _Send|focus: row|answer: sent'
+# A mnemonic is the dialog's own: Alt+D does not press "Discard a draft…" on the page under it, and Alt+S sends.
+check send 'alt+d alt+s' 'focus: row|focus: _Send|focus: row|answer: sent'
 # Enter in an entry that activates the default.
 check rename 'Return' 'focus: row|focus: text|focus: row|answer: rename: Receipts'
 # A disabled response is given neither by Enter nor by Tab, and Escape gives the close response.
@@ -43,6 +45,8 @@ check rename 'BackSpace Return Tab Tab Escape' \
 # A dialog that cannot be closed ignores Escape. A dialog over it takes the keyboard, and gives it back.
 check upload 'Escape Tab Return Tab Return' \
   'focus: row|focus: Stop|focus: Stop|focus: Cancel|focus: Stop|focus: Stop|focus: row'
+# In a dialog taller than the window the focus starts in the list that scrolls.
+check tall 'Escape' 'focus: row|focus: checkbutton|focus: row|answer: done'
 # A window without a shell gets a modal window, with the same keys.
 check window 'Tab Return' 'focus: row|answer: deleted'
 exit "$failed"

@@ -51,7 +51,7 @@ the Lucide icons: ship [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)'s two en
 | `Theme`, `Tokens`, `blend`, `omarchy_state_dir` | The installed look, its colours, and a listener for what CSS cannot reach |
 | `icons::name::*`, `icon`, `icon_button`, `data_uri` | 38 bundled Lucide icons as GTK symbolic icons |
 | `Shell`, `header`, `Title`, `claim_titlebar` | The window's overlay with toasts, and its header bar |
-| `Dialog`, `confirm`, `Appearance` | A dialog drawn inside its window, and the question most of them are |
+| `Dialog`, `WeakDialog`, `confirm`, `Appearance` | A dialog drawn inside its window, and the question most of them are |
 | `label`, `badge`, `sidebar_row`, `clear`, `set_class` | Small builders |
 | `Banner`, `EmptyState` | A message bar; what an empty page or list shows |
 | `dev::shot` (feature `dev`) | A widget written to a PNG, for before-and-after pictures |
@@ -90,8 +90,11 @@ the content and the title bar take neither keys nor the pointer. Tab stays insid
 and Enter the default one: from an entry too, when the entry has `set_activates_default(true)`. `set_can_close(false)`
 makes Escape do nothing until `force_close`. A window that has no `Shell` gets a modal window instead.
 
-A dialog owns its widgets, so a handler on one of them that holds the dialog keeps both alive. Take the widget out
-when the dialog is answered (`set_extra_child(None)` in `connect_response`), as the gallery's rename dialog does.
+In a window too small for the dialog the app's widget scrolls, and the heading and the responses stay in view. A
+dialog with no heading takes its name for a screen reader from `set_title`.
+
+A dialog owns its widgets, so a handler on one of them holds it weakly: `dialog.downgrade()`, or `#[weak] dialog` in
+`glib::clone!`.
 
 ## GTK's own widgets
 
@@ -102,7 +105,8 @@ selection, and the disabled state of each. A text view is bare, so that an edito
 it is a field of several lines.
 
 The arrows, checks and steppers GTK draws for them are the bundled icons, whatever icon theme the desktop has. One
-is not: the eye of a password entry is the icon theme's.
+is not: the eye of a password entry is the icon theme's. In a drop-down the check is the one GTK's own rows end with;
+a row from the app's factory keeps its images.
 
 ## Style classes
 
@@ -146,7 +150,7 @@ OMUI_GALLERY_OPEN=rename dev/preview.sh /tmp/dialog.png
 The fourth form switches the theme while the gallery runs and writes `/tmp/live-switched.png` as well. The last
 opens one of the gallery's dialogs, its drop-down or a menu for the picture; `examples/gallery.rs` lists them.
 
-`dev/keys.sh` presses Tab, Enter and Escape in the gallery's dialogs, in the same nested desktop, and checks where
+`dev/keys.sh` presses Tab, Enter, Escape and mnemonics in the gallery's dialogs, in the same nested desktop, and checks where
 the focus went and what was answered. It needs `wtype`.
 
 The icons under `data/icons` are generated from Lucide by `dev/outline` and committed; its source says how to run it.

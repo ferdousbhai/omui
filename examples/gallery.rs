@@ -2,7 +2,7 @@
 //! Every omui widget in one window, for looking at a change in dark and light themes (dev/preview.sh).
 //!
 //!   OMUI_GALLERY_PAGE=controls|icons|states|dialogs|inputs|menus|views   the page to open on
-//!   OMUI_GALLERY_OPEN=confirm|send|rename|upload|stop|window|dropdown|menu|popover
+//!   OMUI_GALLERY_OPEN=confirm|send|rename|upload|stop|tall|window|dropdown|menu|popover
 //!                                             what to open on its page, as a click would
 //!   OMUI_GALLERY_TRACE=1                      print each focus change and dialog answer (dev/keys.sh reads them)
 //!   OMUI_SHOT=<file.png>                      with feature `dev`: write the window through `omui::dev::shot`
@@ -511,7 +511,7 @@ fn dialogs(app: &gtk::Application, openers: &mut Openers) -> gtk::ScrolledWindow
         }
     });
     let mut opener = |id: &'static str, label: &str, open: Rc<dyn Fn(&gtk::Button)>| {
-        let button = gtk::Button::with_label(label);
+        let button = gtk::Button::with_mnemonic(label);
         button.connect_clicked({
             let open = open.clone();
             move |button| open(button)
@@ -525,7 +525,7 @@ fn dialogs(app: &gtk::Application, openers: &mut Openers) -> gtk::ScrolledWindow
 
     let confirm = opener(
         "confirm",
-        "Discard a draft…",
+        "_Discard a draft…",
         Rc::new({
             let said = said.clone();
             move |button| {
@@ -552,7 +552,7 @@ fn dialogs(app: &gtk::Application, openers: &mut Openers) -> gtk::ScrolledWindow
                     button,
                     "Send without a subject?",
                     "The message has no subject line.",
-                    "Send",
+                    "_Send",
                     Appearance::Suggested,
                     move || said("sent"),
                 );
@@ -573,17 +573,18 @@ fn dialogs(app: &gtk::Application, openers: &mut Openers) -> gtk::ScrolledWindow
                 dialog.set_response_appearance("rename", Appearance::Suggested);
                 dialog.set_default_response("rename");
                 dialog.set_close_response("cancel");
+                // Weak: the dialog owns the entry.
                 entry.connect_changed({
-                    let dialog = dialog.clone();
-                    move |entry| dialog.set_response_enabled("rename", !entry.text().trim().is_empty())
+                    let dialog = dialog.downgrade();
+                    move |entry| {
+                        if let Some(dialog) = dialog.upgrade() {
+                            dialog.set_response_enabled("rename", !entry.text().trim().is_empty());
+                        }
+                    }
                 });
                 dialog.connect_response({
                     let said = said.clone();
-                    move |dialog, id| {
-                        said(&format!("{id}: {}", entry.text()));
-                        // The entry's handler holds the dialog, and the dialog the entry.
-                        dialog.set_extra_child(None);
-                    }
+                    move |_, id| said(&format!("{id}: {}", entry.text()))
                 });
                 dialog.present(button);
             }
@@ -591,6 +592,7 @@ fn dialogs(app: &gtk::Application, openers: &mut Openers) -> gtk::ScrolledWindow
     );
     let upload = |button: &gtk::Button| {
         let dialog = Dialog::new(None, None);
+        dialog.set_title("Uploading photos");
         let content = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .css_classes(["upload"])
@@ -605,6 +607,8 @@ fn dialogs(app: &gtk::Application, openers: &mut Openers) -> gtk::ScrolledWindow
         // Escape does nothing here: the upload ends or is stopped.
         dialog.set_can_close(false);
         dialog.present(button);
+        // Weak: the dialog owns the button.
+        let dialog = dialog.downgrade();
         stop.clone().connect_clicked(move |stop| {
             let dialog = dialog.clone();
             omui::confirm(
@@ -614,9 +618,9 @@ fn dialogs(app: &gtk::Application, openers: &mut Openers) -> gtk::ScrolledWindow
                 "Stop",
                 Appearance::Destructive,
                 move || {
-                    dialog.force_close();
-                    // The Stop button's handler holds the dialog, and the dialog the button.
-                    dialog.set_extra_child(None);
+                    if let Some(dialog) = dialog.upgrade() {
+                        dialog.force_close();
+                    }
                 },
             );
         });
@@ -668,11 +672,43 @@ fn dialogs(app: &gtk::Application, openers: &mut Openers) -> gtk::ScrolledWindow
             }
         }),
     );
+    let tall = opener(
+        "tall",
+        "Choose calendars…",
+        Rc::new({
+            let said = said.clone();
+            move |button| {
+                let dialog = Dialog::new(
+                    Some("Calendars to show"),
+                    Some("More of them than the window is tall: the list scrolls, and the rest stays."),
+                );
+                let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                for n in 1..=40 {
+                    list.append(
+                        &gtk::CheckButton::builder()
+                            .label(format!("Calendar {n}"))
+                            .active(n % 3 == 0)
+                            .build(),
+                    );
+                }
+                dialog.set_extra_child(Some(list.upcast_ref()));
+                dialog.add_response("done", "Done");
+                dialog.set_default_response("done");
+                dialog.set_close_response("done");
+                dialog.connect_response({
+                    let said = said.clone();
+                    move |_, id| said(id)
+                });
+                dialog.present(button);
+            }
+        }),
+    );
     openers.push(("stop", "dialogs", {
         let button = uploading.clone().downcast::<gtk::Button>().expect("a button");
         Rc::new(move || upload(&button).emit_clicked())
     }));
-    column.append(&row(&[&confirm, &send, &rename, &uploading, &window]));
+    column.append(&row(&[&confirm, &send, &rename, &uploading]));
+    column.append(&row(&[&tall, &window]));
     column.append(&answer);
     scroll
 }
@@ -884,7 +920,15 @@ fn views() -> gtk::ScrolledWindow {
     let calendar = gtk::Calendar::builder().valign(gtk::Align::Start).build();
     calendar.mark_day(3);
     calendar.mark_day(24);
-    column.append(&row(&[calendar.upcast_ref(), side.upcast_ref()]));
+    let calendar_off = gtk::Calendar::builder()
+        .valign(gtk::Align::Start)
+        .sensitive(false)
+        .build();
+    column.append(&row(&[
+        calendar.upcast_ref(),
+        calendar_off.upcast_ref(),
+        side.upcast_ref(),
+    ]));
 
     column.append(&omui::label("Progress", "section-title"));
     let bar = |fraction: f64| {
