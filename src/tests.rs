@@ -26,6 +26,8 @@ fn with_gtk() {
     a_response_can_leave_the_dialog_open();
     a_resizable_split_keeps_its_sidebar_within_its_limits();
     a_banner_has_an_icon_and_a_button_of_either_kind();
+    #[cfg(feature = "qa")]
+    qa_selects_a_list_views_item_through_its_model();
     // Last: the theme styles every widget made after it.
     an_app_provider_at_app_priority_is_above_the_reset();
 }
@@ -371,6 +373,55 @@ fn a_banner_has_an_icon_and_a_button_of_either_kind() {
     assert!(button.has_css_class("suggested-action") && !button.is_sensitive());
     banner.set_icon(None, "");
     assert!(!icon.is_visible());
+}
+
+/// QA's `select` on an item of a list view, as on a grid view's (dev/qa/gallery.jsonl): by a label in it, through the
+/// view's selection model; a model that selects nothing says so.
+#[cfg(feature = "qa")]
+fn qa_selects_a_list_views_item_through_its_model() {
+    let factory = gtk::SignalListItemFactory::new();
+    factory.connect_setup(|_, item| {
+        let item = item.downcast_ref::<gtk::ListItem>().unwrap();
+        item.set_child(Some(&gtk::Label::new(None)));
+    });
+    factory.connect_bind(|_, item| {
+        let item = item.downcast_ref::<gtk::ListItem>().unwrap();
+        let text = item.item().and_downcast::<gtk::StringObject>().unwrap().string();
+        item.child().and_downcast::<gtk::Label>().unwrap().set_text(&text);
+    });
+    let model = gtk::StringList::new(&["Inbox", "Sent", "Archive"]);
+    let selection = gtk::SingleSelection::new(Some(model.clone()));
+    let view = gtk::ListView::new(Some(selection.clone()), Some(factory.clone()));
+    let window = gtk::Window::builder().child(&view).build();
+    window.present();
+    let label = |view: &gtk::ListView, text: &str| {
+        for _ in 0..500 {
+            let mut found = None;
+            let mut item = view.first_child();
+            while let Some(widget) = item {
+                let label = widget.first_child().and_downcast::<gtk::Label>();
+                found = found.or(label.filter(|label| label.text() == text && label.is_mapped()));
+                item = widget.next_sibling();
+            }
+            if let Some(label) = found {
+                return label;
+            }
+            glib::MainContext::default().iteration(false);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("the view showed no {text:?}");
+    };
+    assert_eq!(selection.selected(), 0);
+    crate::qa::select(label(&view, "Sent").upcast_ref()).unwrap();
+    assert_eq!(selection.selected(), 1);
+    let widget = label(&view, "Sent").parent().unwrap();
+    assert!(widget.state_flags().contains(gtk::StateFlags::SELECTED));
+    // A view whose model selects nothing.
+    let unselectable = gtk::ListView::new(Some(gtk::NoSelection::new(Some(model))), Some(factory));
+    window.set_child(Some(&unselectable));
+    let error = crate::qa::select(label(&unselectable, "Sent").upcast_ref()).unwrap_err();
+    assert!(error.contains("does not select it"), "{error}");
+    window.destroy();
 }
 
 fn an_app_provider_at_app_priority_is_above_the_reset() {

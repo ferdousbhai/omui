@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: MIT
 //! Scripted QA, behind feature `qa`: with `OMUI_QA=1` an app built with it reads commands from stdin, one JSON object
-//! a line, and answers each on stdout, in order. Widgets are found by accessible role and name, as a screen reader
-//! would find them. Any GLib warning or critical fails the run. `dev/qa.sh` runs an app this way on a broadway
-//! display of its own; README.md has the commands.
+//! a line, and answers each on the file descriptor `OMUI_QA_FD` names, in order, so that what the app prints itself
+//! stays out of the answers. Widgets are found by accessible role and name, as a screen reader would find them. Any
+//! GLib warning or critical fails the run. `dev/qa.sh` runs an app this way on a broadway display of its own;
+//! README.md has the commands.
+//!
+//! [`crate::application`] starts it; an app that builds its own `gtk::Application` calls [`attach`].
 
 use std::{
     cell::{Cell, RefCell},
+    fs::File,
     io::{BufRead, Read, Write},
     net::TcpStream,
+    os::fd::{BorrowedFd, FromRawFd, OwnedFd},
     rc::Rc,
     sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant},
@@ -43,23 +48,82 @@ const PAGE_FRAMES: (&str, &str) = (
 /// How long a command waits for its widget, or `wait` for its condition, unless it gives `timeout_ms`.
 const TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Whether this run is QA mode. In it, GLib's warnings and criticals are recorded from here on.
-pub(crate) fn wanted() -> bool {
-    let wanted = std::env::var_os("OMUI_QA").is_some_and(|value| value == "1");
-    if wanted {
-        glib::log_set_writer_func(record);
-        // A panic in a command would leave the main loop running with no answer, until the run timed out.
-        let report = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            report(info);
-            std::process::exit(101);
-        }));
-        // Before the app has a window: broadway then has the page from the start, and never answers a frame itself.
-        if let Ok(address) = std::env::var("OMUI_QA_INPUT") {
-            INPUT.get_or_init(|| connect(&address));
-        }
+/// Starts scripted QA for `app` when this run asks for it (`OMUI_QA=1`), as [`crate::application`] does for its own:
+/// a display other than broadway ends the run as the application starts, and commands are read once the first
+/// `activate` or `open` has run the app's own handlers, from the window they opened. Call it before `app.run()`,
+/// once, for an app that builds its own `gtk::Application`; with no `OMUI_QA=1` it does nothing.
+pub fn attach(app: &gtk::Application) {
+    if !wanted() {
+        return;
     }
-    wanted
+    app.connect_startup(|_| require_hidden_display());
+    let started = Rc::new(Cell::new(false));
+    for signal in ["activate", "open"] {
+        let started = started.clone();
+        // After the app's handlers, which open the window.
+        app.connect_local(signal, true, move |values| {
+            let app = values[0]
+                .get::<gtk::Application>()
+                .expect("the signal's own application");
+            if !started.replace(true) {
+                start(&app);
+            }
+            None
+        });
+    }
+}
+
+/// Whether this run is QA mode, read once. In it, GLib's warnings and criticals are recorded from here on.
+fn wanted() -> bool {
+    static WANTED: OnceLock<bool> = OnceLock::new();
+    *WANTED.get_or_init(|| {
+        let wanted = std::env::var_os("OMUI_QA").is_some_and(|value| value == "1");
+        if wanted {
+            begin();
+        }
+        wanted
+    })
+}
+
+fn begin() {
+    // Before anything else of the app's opens a file, which could be given the number.
+    let answers = answers_fd().unwrap_or_else(|e| {
+        eprintln!("omui qa: {e}");
+        std::process::exit(2);
+    });
+    ANSWERS.get_or_init(|| Mutex::new(File::from(answers)));
+    glib::log_set_writer_func(record);
+    // A panic in a command would leave the main loop running with no answer, until the run timed out.
+    let report = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        report(info);
+        std::process::exit(101);
+    }));
+    // Before the app has a window: broadway then has the page from the start, and never answers a frame itself.
+    if let Ok(address) = std::env::var("OMUI_QA_INPUT") {
+        INPUT.get_or_init(|| connect(&address));
+    }
+}
+
+/// Where answers go: the open file descriptor `OMUI_QA_FD` names (dev/qa.sh opens 3), not stdout, which is the app's.
+static ANSWERS: OnceLock<Mutex<File>> = OnceLock::new();
+
+/// `OMUI_QA_FD`'s descriptor, moved to one that a program the app starts does not inherit.
+fn answers_fd() -> Result<OwnedFd, String> {
+    let named = std::env::var("OMUI_QA_FD")
+        .map_err(|_| "OMUI_QA=1 needs OMUI_QA_FD, the descriptor answers go to (dev/qa.sh sets it)")?;
+    let fd: i32 = named
+        .parse()
+        .ok()
+        .filter(|fd| *fd > 2)
+        .ok_or(format!("OMUI_QA_FD={named} is not a descriptor above stderr's"))?;
+    // SAFETY: the descriptor is only duplicated here; one that is not open fails with EBADF.
+    let moved = unsafe { BorrowedFd::borrow_raw(fd) }
+        .try_clone_to_owned()
+        .map_err(|e| format!("OMUI_QA_FD={fd} is not open: {e}"))?;
+    // SAFETY: it is open, and the app has not been handed it: it was the runner's to give.
+    drop(unsafe { OwnedFd::from_raw_fd(fd) });
+    Ok(moved)
 }
 
 fn record(level: glib::LogLevel, fields: &[glib::LogField<'_>]) -> glib::LogWriterOutput {
@@ -88,7 +152,7 @@ fn record(level: glib::LogLevel, fields: &[glib::LogField<'_>]) -> glib::LogWrit
 
 /// Ends the run unless the app is on a broadway display, as dev/qa.sh gives it, which no one sees: a script run on
 /// the desktop would click about in a window there. Called as the application starts, before it has a window.
-pub(crate) fn require_hidden_display() {
+fn require_hidden_display() {
     let display = gdk::Display::default().map(|display| display.type_().name());
     if display != Some("GdkBroadwayDisplay") {
         eprintln!(
@@ -99,8 +163,8 @@ pub(crate) fn require_hidden_display() {
     }
 }
 
-/// Starts reading commands, for the window `open` has just built.
-pub(crate) fn start(app: &gtk::Application) {
+/// Starts reading commands, for the window the app has just opened.
+fn start(app: &gtk::Application) {
     let Some(window) = app.active_window() else {
         eprintln!("omui qa: the application opened no window");
         std::process::exit(1);
@@ -201,9 +265,11 @@ fn answer(verb: &str, result: Answer) -> bool {
     if !logged.is_empty() {
         line.insert("logged".into(), logged.into());
     }
-    let mut out = std::io::stdout().lock();
-    // A reader that has gone cannot be told anything; the exit status still says how the run went.
-    let _ = writeln!(out, "{}", Value::Object(line)).and_then(|()| out.flush());
+    // Set before any answer; a reader that has gone cannot be told anything: the exit status still says how it went.
+    if let Some(out) = ANSWERS.get() {
+        let mut out = out.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = writeln!(out, "{}", Value::Object(line)).and_then(|()| out.flush());
+    }
     ok
 }
 
@@ -272,14 +338,7 @@ impl Qa {
             "select" => {
                 let widget = self.wait_for(target.as_ref(), timeout).await?;
                 clickable(&widget)?;
-                let row = widget
-                    .downcast_ref::<gtk::ListBoxRow>()
-                    .ok_or_else(|| format!("{} is not a list row", describe(&widget)))?;
-                let list = row
-                    .parent()
-                    .and_downcast::<gtk::ListBox>()
-                    .ok_or("the row is in no list")?;
-                list.select_row(Some(row));
+                select(&widget)?;
                 Ok(Map::new())
             }
             "key" => {
@@ -659,6 +718,7 @@ const NAMED_BY_CONTENT: &[gtk::AccessibleRole] = &[
     gtk::AccessibleRole::Button,
     gtk::AccessibleRole::Checkbox,
     gtk::AccessibleRole::Dialog,
+    gtk::AccessibleRole::GridCell,
     gtk::AccessibleRole::Group,
     gtk::AccessibleRole::Link,
     gtk::AccessibleRole::ListItem,
@@ -786,7 +846,10 @@ fn properties(widget: &gtk::Widget) -> Map<String, Value> {
             .downcast_ref::<gtk::ToggleButton>()
             .map(|toggle| toggle.is_active())
     };
-    let selected = widget.downcast_ref::<gtk::ListBoxRow>().map(|row| row.is_selected());
+    let selected = match widget.downcast_ref::<gtk::ListBoxRow>() {
+        Some(row) => Some(row.is_selected()),
+        None => view_item(widget).then(|| widget.state_flags().contains(gtk::StateFlags::SELECTED)),
+    };
     let mut map = Map::from_iter([
         ("role".to_owned(), role(widget).into()),
         ("name".to_owned(), name(widget).into()),
@@ -803,6 +866,46 @@ fn properties(widget: &gtk::Widget) -> Map<String, Value> {
         map.insert("selected".to_owned(), selected.into());
     }
     map
+}
+
+/// Selects the list row, or the item of a list or grid view, that `widget` is or is in: a row through its list box,
+/// an item through its view's selection model, as a click on it would.
+pub(crate) fn select(widget: &gtk::Widget) -> Result<(), String> {
+    let mut ancestor = Some(widget.clone());
+    while let Some(item) = ancestor {
+        if let Some(row) = item.downcast_ref::<gtk::ListBoxRow>() {
+            let list = row
+                .parent()
+                .and_downcast::<gtk::ListBox>()
+                .ok_or("the row is in no list")?;
+            list.select_row(Some(row));
+            return Ok(());
+        }
+        if view_item(&item) {
+            // The view's own action for a click: select this item, and no other.
+            item.activate_action("listitem.select", Some(&(false, false).to_variant()))
+                .map_err(|e| format!("{} cannot be selected: {e}", describe(&item)))?;
+            if !item.state_flags().contains(gtk::StateFlags::SELECTED) {
+                return Err(format!(
+                    "{} stays unselected: its view's model does not select it",
+                    describe(&item)
+                ));
+            }
+            return Ok(());
+        }
+        ancestor = item.parent();
+    }
+    Err(format!(
+        "{} is in no list row, nor an item of a list or grid view",
+        describe(widget)
+    ))
+}
+
+/// Whether `widget` is an item of a list or grid view: one of the widgets the view makes for its model's items.
+fn view_item(widget: &gtk::Widget) -> bool {
+    widget
+        .parent()
+        .is_some_and(|view| view.is::<gtk::ListView>() || view.is::<gtk::GridView>())
 }
 
 /// Whether a person could click `widget`: it is on screen, enabled, and nothing (a dialog over it, in its window or a

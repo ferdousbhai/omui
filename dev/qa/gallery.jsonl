@@ -39,6 +39,17 @@
 {"do":"click","role":"button","name":"Undo","in":{"role":"alert","name":"Moved harbour.jpg to Recently Deleted"}}
 {"do":"wait","toasts":["Copied","Saved pier.jpg to Downloads","Moved shore.jpg to Recently Deleted"]}
 
+# 0.5.1: a grid view's items, as Photos' library has, selected through the view's model, by the cell or by a label in
+# it. The gallery prints each selection on its stdout, which stays out of these answers.
+{"do":"select","role":"list-item","name":"Views"}
+{"do":"wait","role":"grid-cell","name":"Pier","selected":false}
+{"do":"select","role":"grid-cell","name":"Pier"}
+{"do":"wait","role":"grid-cell","name":"Pier","selected":true}
+{"do":"wait","role":"label","name":"grid: Pier"}
+{"do":"select","role":"label","name":"Lighthouse"}
+{"do":"wait","role":"grid-cell","name":"Lighthouse","selected":true}
+{"do":"wait","role":"grid-cell","name":"Pier","selected":false}
+
 # Nav: a page pushed, and Escape back.
 {"do":"select","role":"list-item","name":"Pages"}
 {"do":"click","role":"list-item","name":"Create an account"}

@@ -1,6 +1,6 @@
 [package]
 name = "omui"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 rust-version = "1.92"
 # The code is MIT; the bundled icons are Lucide's (THIRD_PARTY_NOTICES.md).
@@ -11,7 +11,7 @@ repository = "https://github.com/ferdousbhai/omui"
 [features]
 # `dev::shot`, for screenshot hooks in debug builds.
 dev = []
-# Scripted QA (`OMUI_QA=1`, dev/qa.sh): commands on stdin, answers on stdout. Off by default, so a release build
+# Scripted QA (`OMUI_QA=1`, dev/qa.sh): commands on stdin, answers on `OMUI_QA_FD`. Off by default, so a release build
 # carries none of it.
 qa = ["dev", "dep:serde_json"]
 

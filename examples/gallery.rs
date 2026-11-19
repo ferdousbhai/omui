@@ -1281,6 +1281,49 @@ fn views() -> gtk::ScrolledWindow {
     }
     tiles.select_child(&tiles.child_at_index(0).expect("the first tile"));
     column.append(&row(&[list.upcast_ref(), tiles.upcast_ref()]));
+
+    // A grid view, as Photos' library is: its items are the view's, selected through its model.
+    column.append(&omui::label("Grid view", "section-title"));
+    let photos = gtk::StringList::new(&["Harbour", "Pier", "Shore", "Lighthouse"]);
+    let selection = gtk::SingleSelection::builder().model(&photos).autoselect(false).build();
+    selection.set_selected(gtk::INVALID_LIST_POSITION);
+    let factory = gtk::SignalListItemFactory::new();
+    factory.connect_setup(|_, item| {
+        let item = item.downcast_ref::<gtk::ListItem>().expect("a list item");
+        item.set_child(Some(&omui::label("", "tile")));
+    });
+    factory.connect_bind(|_, item| {
+        let item = item.downcast_ref::<gtk::ListItem>().expect("a list item");
+        let text = item.item().and_downcast::<gtk::StringObject>().expect("a string");
+        item.child()
+            .and_downcast::<gtk::Label>()
+            .expect("the label")
+            .set_text(&text.string());
+    });
+    let grid = gtk::GridView::builder()
+        .model(&selection)
+        .factory(&factory)
+        .max_columns(4)
+        .min_columns(4)
+        .hexpand(true)
+        .build();
+    let chosen = omui::label("grid: none", "note");
+    selection.connect_selected_item_notify({
+        let chosen = chosen.clone();
+        move |selection| {
+            let text = selection
+                .selected_item()
+                .and_downcast::<gtk::StringObject>()
+                .map_or("none".into(), |item| item.string());
+            chosen.set_text(&format!("grid: {text}"));
+            // An app's own output, which dev/qa.sh keeps apart from its answers.
+            #[cfg(feature = "qa")]
+            println!("gallery: grid selected {text}");
+        }
+    });
+    column.append(&grid);
+    column.append(&chosen);
+
     let off = row(&[
         omui::label("Everything here is disabled", "").upcast_ref(),
         omui::icon(name::CLOUD).upcast_ref(),

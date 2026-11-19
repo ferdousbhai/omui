@@ -11,7 +11,7 @@ theming approach it follows.
 
 ```toml
 [dependencies]
-omui = { git = "https://github.com/ferdousbhai/omui", rev = "<40-hex>" } # v0.5.0
+omui = { git = "https://github.com/ferdousbhai/omui", rev = "<40-hex>" } # v0.5.1
 ```
 
 Building needs `glib-compile-resources` (on Arch it is part of `glib2`).
@@ -59,7 +59,7 @@ the Lucide icons: ship [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)'s two en
 | `label`, `badge`, `avatar`, `spinner`, `sidebar_row`, `single_tab_stop`, `clear`, `set_class` | Small builders; a list that Tab passes in one step |
 | `Banner`, `EmptyState` | A message bar with an icon and buttons; what an empty page or list shows |
 | `dev::shot` (feature `dev`) | A widget written to a PNG, for before-and-after pictures |
-| Scripted QA (feature `qa`) | With `OMUI_QA=1`, the app is driven by JSON lines on stdin: widgets found by role and name, and any GLib warning fails the run |
+| Scripted QA (feature `qa`), `qa::attach` | With `OMUI_QA=1`, the app is driven by JSON lines on stdin and answers on a descriptor of their own: widgets found by role and name, and any GLib warning fails the run |
 
 With these an app that was built on libadwaita needs none of it: each has the methods of the libadwaita widget it
 stands for, which its documentation names.
@@ -305,12 +305,23 @@ The icons under `data/icons` are generated from Lucide by `dev/outline` and comm
 ## Scripted QA
 
 An app built with feature `qa` and run with `OMUI_QA=1` takes commands on stdin, one JSON object a line, and answers
-each on stdout, in order: `{"do": …, "ok": true, …}`, or `"ok": false` with an `error`. The first failure ends the
+each, in order, on the open file descriptor `OMUI_QA_FD` names (above 2; dev/qa.sh opens 3), so what the app prints
+on stdout or stderr itself never mixes with them: `{"do": …, "ok": true, …}`, or `"ok": false` with an `error`. Without
+`OMUI_QA_FD` it exits with 2. The first failure ends the
 run, and the exit status is 1; so does a script that ends without `quit`, and a panic ends it at once with 101. Any
 GLib warning or critical fails the command it came in (`logged`), even one logged as the windows close after `quit`.
 Two are let pass: GTK's complaint that there is no accessibility bus, and broadway's one warning of a duplicate frame
 timing (below). `omui::application` starts it, so an app needs nothing but the feature, which a release build leaves
 off: it brings `serde_json`. It runs on a broadway display alone, and exits with 2 on any other.
+
+An app that builds its own `gtk::Application` (to handle `open`, say, for `mailto:` links) starts it itself, before
+`run`, with what `omui::application` does: `OMUI_QA` read once, any display but broadway refused as the application
+starts, and commands read from the window the first `activate` or `open` opened, after the app's own handlers:
+
+```rust
+#[cfg(feature = "qa")] // the app's own feature, `qa = ["omui/qa"]`
+omui::qa::attach(&app);
+```
 
 ```sh
 cargo build --example gallery --features qa
@@ -318,13 +329,14 @@ dev/qa.sh target/debug/examples/gallery dev/qa/gallery.jsonl
 ```
 
 `dev/qa.sh` runs the app on a broadway display of its own with a private home and no session bus, so no window
-opens anywhere, prints each command with its answer, and exits with the app's status. Lines starting with `#` are
+opens anywhere, lets the app's stdout and stderr through, prints each command with its answer, and exits with the
+app's status. Lines starting with `#` are
 comments. `dev/qa/critical.jsonl` must fail: it has the gallery make GTK log a critical.
 
 A widget is named by its accessible `role` (GTK's nick: `button`, `toggle-button`, `checkbox`, `switch`, `text-box`,
 `search-box`, `list-item`, `dialog`, `alert`, `separator`, …) and `name`, and optionally `in` an ancestor named the
 same way: `{"role": "dialog", "name": "Rename the folder"}`. Its name is its accessible label, its label, title or
-placeholder, its tooltip, or for a button, row, group, dialog or toast any label inside it. It is looked for in every
+placeholder, its tooltip, or for a button, row, list item, grid cell, group, dialog or toast any label inside it. It is looked for in every
 window, a dialog's own modal window too (over a window with no `Shell`). Of several, the innermost on screen is meant; more than one is an error. A command that acts waits up to `timeout_ms` (5000) for its widget to
 be on screen, and every command waits for the window to be drawn after the last.
 
@@ -336,8 +348,8 @@ be on screen, and every command waits for the window to be drawn after the last.
 | `{"do":"key", "keys":"<Control>u"}` | Presses a key with its modifiers (GTK accelerator syntax), as a keyboard would | |
 | `{"do":"action", "name":"win.save", "parameter":"…"}` | Activates a `win.` or `app.` action; the parameter is GVariant text | |
 | `{"do":"set", role, name, "checked":true}` | Sets a switch, check box or toggle button | |
-| `{"do":"select", role, name}` | Selects a list row | |
-| `{"do":"query", role, name}` | | `role` `name` `visible` `sensitive` `focused` `text` `checked` `selected` (rows) `width` `height` |
+| `{"do":"select", role, name}` | Selects what it is or is in: a `GtkListBox` row, or an item of a `GtkListView` or `GtkGridView` (`list-item`, `grid-cell`) through the view's selection model, as a click would; fails if that model leaves it unselected (`GtkNoSelection`) | |
+| `{"do":"query", role, name}` | | `role` `name` `visible` `sensitive` `focused` `text` `checked` `selected` (list box rows, view items) `width` `height` |
 | `{"do":"state"}` | | `size` of the app's window; of all windows the `dialog` on top (its name, or null), the `toasts` showing, the `focus` in the window that has the keyboard |
 | `{"do":"wait", …}` | Waits until each other key equals what `query` (with a role or name) or `state` answers, or a widget is on screen; one that is not there is `"visible": false` | The last answer |
 | `{"do":"resize", "width":560, "height":700}` | Sets the window's size | |
