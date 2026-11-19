@@ -57,6 +57,9 @@ impl Tokens {
 
     /// Strata's `tokens_from_quattro` in its default "darker" form: the keys of an Omarchy `colors.toml` to semantic
     /// colours. None when background, foreground or accent is missing or not a hex colour.
+    ///
+    /// Unlike Strata's, the colours that are drawn as text are kept readable on the background: several light themes
+    /// have a soft foreground and pastel status colours, and their darker background takes the rest.
     pub fn from_colors(name: &str, colors_toml: &str) -> Option<Tokens> {
         let values = parse_lines(colors_toml);
         let get = |key: &str| values.get(key).copied().and_then(canonical);
@@ -72,24 +75,34 @@ impl Tokens {
         // A theme without its own green or yellow gets a fixed hue pulled a quarter of the way to its text colour, so
         // the two sit in the palette instead of on top of it.
         let toned = |hue: &str| blend(hue, &text, 0.25);
+        let status = |color: String| readable(&color, &background, &text, STATUS_CONTRAST);
         Some(Tokens {
             name: name.to_owned(),
-            surface: background.clone(),
-            background,
-            danger: get("red").or_else(|| get("color1")).unwrap_or_else(|| "#e5484d".into()),
-            success: get("green")
-                .or_else(|| get("color2"))
-                .unwrap_or_else(|| toned("#46a758")),
-            warning: get("yellow")
-                .or_else(|| get("color3"))
-                .unwrap_or_else(|| toned("#ffb224")),
+            danger: status(get("red").or_else(|| get("color1")).unwrap_or_else(|| "#e5484d".into())),
+            success: status(
+                get("green")
+                    .or_else(|| get("color2"))
+                    .unwrap_or_else(|| toned("#46a758")),
+            ),
+            warning: status(
+                get("yellow")
+                    .or_else(|| get("color3"))
+                    .unwrap_or_else(|| toned("#ffb224")),
+            ),
             // Some themes set lighter_background equal to background, which would hide hover.
             muted: get("lighter_background")
                 .filter(|l| *l != source_background)
                 .unwrap_or_else(|| blend(&source_background, &text, 0.10)),
             highlight: get("selection").unwrap_or_else(|| blend(&source_background, &accent, 0.25)),
             border: get("muted").unwrap_or_else(|| blend(&source_background, &text, 0.36)),
-            dim_text: blend(&source_background, &text, 0.62),
+            dim_text: readable(
+                &blend(&source_background, &text, 0.62),
+                &background,
+                &text,
+                TEXT_CONTRAST,
+            ),
+            surface: background.clone(),
+            background,
             text,
             accent,
             light,
@@ -159,6 +172,26 @@ fn luminance(color: &str) -> f64 {
         }
     });
     c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722
+}
+
+/// WCAG's floor for body text, which secondary text is.
+const TEXT_CONTRAST: f64 = 4.5;
+/// WCAG's floor for large text and for graphics: a status colour is a word or two, an icon, or a border.
+const STATUS_CONTRAST: f64 = 3.0;
+
+/// The WCAG contrast ratio of two colours, 1 to 21.
+fn contrast(a: &str, b: &str) -> f64 {
+    let (a, b) = (luminance(a), luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+/// `color`, moved toward `text` a tenth at a time until it reads at `ratio` on `background`. A colour that already
+/// does is returned as it is, and none ends up past `text`.
+fn readable(color: &str, background: &str, text: &str, ratio: f64) -> String {
+    (0..=10)
+        .map(|step| blend(color, text, f64::from(step) / 10.0))
+        .find(|candidate| contrast(candidate, background) >= ratio)
+        .unwrap_or_else(|| text.to_owned())
 }
 
 /// `$HOME`, read from the environment each time: glib caches its own answer.
@@ -468,6 +501,24 @@ mod tests {
     }
 
     #[test]
+    fn colours_drawn_as_text_are_raised_until_they_read() {
+        // Catppuccin Latte: a soft foreground, pastel status colours, and a background darker than the theme's own.
+        let latte = "mode = \"light\"\nbackground = \"#eff1f5\"\ndark_background = \"#e3e4e8\"\n\
+                     foreground = \"#4c4f69\"\naccent = \"#1e66f5\"\nred = \"#d20f39\"\ngreen = \"#40a02b\"\n\
+                     yellow = \"#df8e1d\"";
+        let t = Tokens::from_colors("catppuccin-latte", latte).unwrap();
+        assert!(contrast(&blend("#eff1f5", "#4c4f69", 0.62), &t.background) < 3.0);
+        assert!(contrast(&t.dim_text, &t.background) >= TEXT_CONTRAST, "{}", t.dim_text);
+        assert!(contrast(&t.dim_text, &t.background) < contrast(&t.text, &t.background));
+        assert_eq!(t.danger, "#d20f39", "a colour that reads is the theme's own");
+        for status in [&t.success, &t.warning] {
+            assert!(contrast(status, &t.background) >= STATUS_CONTRAST, "{status}");
+        }
+        // A foreground that cannot reach the ratio itself is as far as a colour goes.
+        assert_eq!(readable("#999999", "#888888", "#777777", TEXT_CONTRAST), "#777777");
+    }
+
+    #[test]
     fn missing_keys_are_derived() {
         let t = Tokens::from_colors(
             "x",
@@ -490,12 +541,12 @@ mod tests {
     #[test]
     fn ansi_colours_stand_in_and_mode_outranks_luminance() {
         let source = "mode = \"dark\"\nbackground = \"#fff\"\nforeground = \"#000\"\naccent = \"#00f\"\n\
-                      color1 = \"#aa0000\"\ncolor2 = \"#00aa00\"\ncolor3 = \"#aaaa00\"\nlighter_background = \"#ffffff\"";
+                      color1 = \"#aa0000\"\ncolor2 = \"#00aa00\"\ncolor3 = \"#777700\"\nlighter_background = \"#ffffff\"";
         let t = Tokens::from_colors("x", source).unwrap();
         assert!(!t.light);
         assert_eq!(
             (t.danger.as_str(), t.success.as_str(), t.warning.as_str()),
-            ("#aa0000", "#00aa00", "#aaaa00")
+            ("#aa0000", "#00aa00", "#777700")
         );
         assert_eq!(
             t.muted, "#e6e6e6",

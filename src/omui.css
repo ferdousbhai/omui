@@ -72,7 +72,8 @@ headerbar {
 
 headerbar > windowhandle > box { border-spacing: 4px; min-height: 40px; }
 headerbar .title { font-weight: 650; }
-headerbar .subtitle { color: @om_dim_text; font-size: 0.85em; }
+/* The built-in theme dims this, a placeholder and .dim-label by opacity; here the dim colour is the whole of it. */
+headerbar .subtitle { color: @om_dim_text; font-size: 0.85em; opacity: 1; }
 
 /* A bar of actions inside the content, above or below it. */
 .toolbar {
@@ -157,7 +158,7 @@ entry {
 }
 entry:focus-within { border-color: @om_accent; outline: none; }
 entry:disabled { background: alpha(@om_text, 0.02); border-color: alpha(@om_border, 0.3); color: alpha(@om_text, 0.4); }
-entry > text > placeholder { color: @om_dim_text; }
+entry > text > placeholder { color: @om_dim_text; opacity: 1; }
 entry > image { color: @om_dim_text; -gtk-icon-size: 16px; }
 entry > image.left { margin-right: 6px; }
 entry > image.right { margin-left: 6px; }

@@ -61,6 +61,9 @@ Colours come from `~/.local/state/omarchy/current/theme/colors.toml`, where Omar
 Omarchy the palette is Tokyo Night. The interface font is JetBrains Mono at 13 px times the desktop's text scale; an
 app's CSS may set another `font-family` on a widget or a pane.
 
+The colours are the theme's own, with one adjustment: secondary text and the status colours are moved toward the
+text colour when they would not read on the background (4.5:1 and 3:1), which several light themes need.
+
 In CSS the colours are GTK named colours, tinted only with `alpha()`:
 
 `@om_bg` `@om_surface` `@om_text` `@om_dim_text` `@om_accent` `@om_danger` `@om_success` `@om_warning` `@om_muted`

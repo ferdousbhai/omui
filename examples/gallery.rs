@@ -432,12 +432,13 @@ fn states(shell: &Rc<Shell>) -> gtk::Box {
     let list = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .css_classes(["gallery-page"])
+        .spacing(6)
         .width_request(340)
         .build();
-    list.append(&omui::label("Today", "section-title"));
-    list.append(&compact.widget);
     list.append(&omui::label("Inbox", "section-title"));
     list.append(&omui::label("Loading…", "status-line"));
+    list.append(&omui::label("Today", "section-title"));
+    list.append(&compact.widget);
     column.append(&row(&[
         empty.widget.upcast_ref(),
         gtk::Separator::new(gtk::Orientation::Vertical).upcast_ref(),
