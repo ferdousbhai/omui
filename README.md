@@ -90,8 +90,9 @@ shell.add_toast(omui::Toast::new("Moved to Recently Deleted").seconds(10)
     .action("Undo", move || restore()).on_dismissed(move || forget_undo()));
 ```
 
-Toasts stack at the bottom of the window, newest lowest. A toast without a button takes the place of another without
-one; a toast with a button stays for as long as it said, whatever comes after it. `on_dismissed` runs once a toast
+Toasts stack at the bottom of the window, newest lowest, three at most: the rest wait their turn, and their time
+starts when they appear. A toast without a button takes the place of another without one; a toast with a button stays
+for as long as it said, whatever comes after it. `on_dismissed` runs once a toast
 has gone, however it went: its time ran out, it was closed, a later toast replaced it, or its button was pressed
 (after the button's action). A toast lasts five seconds unless `seconds` says otherwise.
 
@@ -156,7 +157,9 @@ A `Split` and a `Nav` are handles: the widget does the work, and goes on doing i
 handler on a widget inside one holds it weakly (`#[weak]` in `glib::clone!`, or `downgrade()`). A split can only
 collapse if the window can get that narrow, so content that will not shrink (a wide row of buttons outside a
 scrolled window) keeps it wide. A split's least height is the same at every width, what its panes need with their text
-on one line, so wrapping text in a pane does not make GTK give a narrow window a least width wider than its tile.
+on one line, so wrapping text in a pane does not make GTK give a narrow window a least width wider than its tile. A
+narrow pane given less height than its wrapped text needs is cut off at the bottom: text that must stay within reach
+in a short window goes in a `gtk::ScrolledWindow`.
 
 ## Groups and rows
 
@@ -233,12 +236,12 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 ```
 
-The tests that need GTK running (sizes, toasts, what a dialog holds back) run only on a broadway display, so that
-they neither show anything nor read the settings of the desktop they are run from:
+The test that needs GTK running (sizes, toasts, what a dialog holds back) is listed as ignored there: it runs on a
+broadway display, so that it neither shows anything nor reads the settings of the desktop it is run from.
+`dev/gtk-tests.sh` starts one with a private home and runs it:
 
 ```sh
-rt=$(mktemp -d /tmp/omb.XXXXXX); XDG_RUNTIME_DIR=$rt gtk4-broadwayd :77 &
-XDG_RUNTIME_DIR=$rt GDK_BACKEND=broadway BROADWAY_DISPLAY=:77 cargo test --all-features
+dev/gtk-tests.sh
 ```
 
 `examples/gallery.rs` shows every widget. `dev/preview.sh` runs it in a nested Hyprland with a private home and

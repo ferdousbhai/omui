@@ -796,10 +796,28 @@ pub fn confirm(
 pub fn about(parent: &impl IsA<gtk::Widget>, name: &str, version: &str, text: &str, website: Option<&str>) {
     let dialog = Dialog::new(Some(name), Some(&format!("Version {version}\n\n{text}")));
     if let Some(website) = website {
-        let link = gtk::LinkButton::with_label(website, "Website");
-        link.set_halign(gtk::Align::Start);
+        // A link in a label, not a link button: it lines up with the text above it, which a button's padding would
+        // not.
+        let link = gtk::Label::builder()
+            .label(format!("<a href=\"{}\">Website</a>", glib::markup_escape_text(website)))
+            .use_markup(true)
+            .xalign(0.0)
+            .build();
         dialog.set_extra_child(Some(link.upcast_ref()));
     }
     dialog.set_close_button(true);
+    // The keyboard starts on the close button, not the link, where Enter pressed as the dialog opens would go to the
+    // browser. This runs after the dialog's own choice, which is made as the card is mapped too.
+    let close = dialog
+        .inner
+        .close_button
+        .borrow()
+        .as_ref()
+        .map(|button| button.downgrade());
+    dialog.inner.card.connect_map(move |_| {
+        if let Some(close) = close.as_ref().and_then(|close| close.upgrade()) {
+            close.grab_focus();
+        }
+    });
     dialog.present(parent);
 }

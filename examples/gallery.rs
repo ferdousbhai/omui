@@ -642,9 +642,9 @@ fn states(shell: &Rc<Shell>, openers: &mut Openers) -> gtk::Box {
         list.upcast_ref(),
     ]));
 
-    // Photos' toasts: two that can be acted on, then a plain one. None of them takes another's place, and each goes
-    // after its own time.
-    let toasts = gtk::Button::with_label("Delete, download and copy");
+    // Photos' toasts: a plain one, then three that can be acted on. None of them takes another's place, the third of
+    // those waits until the plain one has gone, and each goes after its own time.
+    let toasts = gtk::Button::with_label("Copy, delete, download and delete");
     toasts.set_halign(gtk::Align::Start);
     toasts.set_margin_start(28);
     let show = Rc::new({
@@ -652,11 +652,12 @@ fn states(shell: &Rc<Shell>, openers: &mut Openers) -> gtk::Box {
         move || {
             let Some(shell) = shell.upgrade() else { return };
             let gone = |what: &'static str| move || trace(&format!("toast: {what} dismissed"));
+            shell.add_toast(Toast::new("Copied").seconds(4).on_dismissed(gone("copied")));
             shell.add_toast(
                 Toast::new("Moved harbour.jpg to Recently Deleted")
                     .seconds(10)
                     .action("Undo", || trace("toast: undo"))
-                    .on_dismissed(gone("deleted")),
+                    .on_dismissed(gone("harbour deleted")),
             );
             shell.add_toast(
                 Toast::new("Saved pier.jpg to Downloads")
@@ -664,7 +665,12 @@ fn states(shell: &Rc<Shell>, openers: &mut Openers) -> gtk::Box {
                     .action("Show", || trace("toast: show"))
                     .on_dismissed(gone("saved")),
             );
-            shell.add_toast(Toast::new("Copied").seconds(4).on_dismissed(gone("copied")));
+            shell.add_toast(
+                Toast::new("Moved shore.jpg to Recently Deleted")
+                    .seconds(10)
+                    .action("Undo", || trace("toast: undo"))
+                    .on_dismissed(gone("shore deleted")),
+            );
         }
     });
     toasts.connect_clicked({

@@ -262,9 +262,11 @@ mod imp {
             };
             if orientation == gtk::Orientation::Vertical {
                 // As tall as the taller pane on screen: naturally, at the width it gets; at the least, what it needs
-                // at no width in particular, and so the same at every width. GTK gives a window whose least height
-                // grows as it narrows a least width in proportion, from the size it had before it was tiled: wrapping
-                // text in a pane made a window wider than its tile.
+                // at no width in particular, and so the same at every width. When a window's least height changes
+                // with its width, GTK looks for its least size along the shape the window had before it was tiled
+                // (gtk_window_compute_min_size), and a pane whose text wraps one line more in a narrow tile made the
+                // window wider than the tile. So a narrow split may be given less height than its panes need: see
+                // `allocate`.
                 let mut tallest = (0, 0);
                 let width = if for_size < 0 { widget.width() } else { for_size };
                 for (pane, _, pane_width) in self.places(&sidebar, &content, width) {
@@ -297,7 +299,10 @@ mod imp {
                 return;
             };
             for (pane, x, pane_width) in self.places(&sidebar, &content, width) {
-                place(&pane, x, pane_width, height, baseline);
+                // Never less than the pane needs at its width, for what does not fit to be cut off at the bottom
+                // rather than drawn over itself.
+                let least = pane.measure(gtk::Orientation::Vertical, pane_width).0;
+                place(&pane, x, pane_width, height.max(least), baseline);
             }
             let collapsed = self.collapses(&sidebar, &content, width);
             if self.collapsed.replace(collapsed) != collapsed
@@ -438,6 +443,11 @@ macro_rules! weak_handle {
 /// A list and its detail call [`Split::set_show_content`] when a row is chosen, and put a back button on the
 /// content that is visible while [`Split::is_collapsed`]. A sidebar with a button that shows and hides it calls
 /// [`Split::set_show_sidebar`], and keeps the button in step from [`Split::connect_changed`].
+///
+/// The least height it asks for is the same at every width, so that a window keeps to a narrow tile: it is what the
+/// panes need with their text unwrapped, which is less than a narrow pane with wrapping text needs. A pane given less
+/// than it needs is cut off at the bottom, so text that must stay within reach in a short window goes in a
+/// `gtk::ScrolledWindow`, as a list does already.
 ///
 /// This is a handle: the widget is the split and works without it. A handler on a widget inside the split holds a
 /// [`WeakSplit`], or the two would keep each other alive.

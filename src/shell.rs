@@ -13,6 +13,10 @@ type Action = Rc<dyn Fn()>;
 /// How long a toast stays unless it says otherwise, as libadwaita's do.
 const TOAST_SECONDS: u32 = 5;
 
+/// The most toasts on screen at once. Those after them wait their turn, so a run of undos covers no more of the
+/// window than this.
+const TOASTS_SHOWN: usize = 3;
+
 /// A line at the bottom of the window for a few seconds (`adw::Toast`), with an optional button: an undo, a retry,
 /// a way to the file just saved. Shown by [`Shell::add_toast`].
 pub struct Toast {
@@ -53,11 +57,13 @@ impl Toast {
     }
 }
 
-/// A toast on screen.
+/// A toast on screen or waiting for room there.
 struct Shown {
     widget: gtk::Box,
     /// Without a button: the next toast takes its place.
     plain: bool,
+    seconds: u32,
+    /// Running from when the toast is on screen, until it has run.
     timer: Option<glib::SourceId>,
     dismissed: Option<Action>,
 }
@@ -67,6 +73,7 @@ pub struct Shell {
     pub overlay: gtk::Overlay,
     /// The toasts on screen, oldest first and at the top: a column at the bottom of the window.
     column: gtk::Box,
+    /// Oldest first: the first [`TOASTS_SHOWN`] are on screen, the rest wait.
     shown: RefCell<Vec<Shown>>,
 }
 
@@ -103,7 +110,8 @@ impl Shell {
     }
 
     /// Shows `toast` under those on screen. A toast without a button takes the place of another without one; one
-    /// with a button is never put away by a later toast, so its undo stays within reach for as long as it said.
+    /// with a button is never put away by a later toast, so its undo stays within reach for as long as it said. With
+    /// three on screen it waits for one to go, and its time starts when it appears.
     pub fn add_toast(self: &Rc<Self>, toast: Toast) {
         let label = gtk::Label::builder()
             .label(&toast.text)
@@ -154,25 +162,36 @@ impl Shell {
                 self.dismiss(&old);
             }
         }
-        let (shell, toast_widget) = (Rc::downgrade(self), widget.downgrade());
-        let timer = glib::timeout_add_seconds_local_once(toast.seconds, move || {
-            let (Some(shell), Some(toast)) = (shell.upgrade(), toast_widget.upgrade()) else {
-                return;
-            };
-            // This timer has run, so there is nothing left of it to remove.
-            if let Some(shown) = shell.shown.borrow_mut().iter_mut().find(|shown| shown.widget == toast) {
-                shown.timer = None;
-            }
-            shell.dismiss(&toast);
-        });
-        self.column.append(&widget);
-        self.column.set_visible(true);
         self.shown.borrow_mut().push(Shown {
             widget,
             plain,
-            timer: Some(timer),
+            seconds: toast.seconds,
+            timer: None,
             dismissed: toast.dismissed,
         });
+        self.show_waiting();
+    }
+
+    /// Puts waiting toasts on screen while there is room, and starts their time.
+    fn show_waiting(self: &Rc<Self>) {
+        for shown in self.shown.borrow_mut().iter_mut().take(TOASTS_SHOWN) {
+            if shown.widget.parent().is_some() {
+                continue;
+            }
+            let (shell, toast) = (Rc::downgrade(self), shown.widget.downgrade());
+            shown.timer = Some(glib::timeout_add_seconds_local_once(shown.seconds, move || {
+                let (Some(shell), Some(toast)) = (shell.upgrade(), toast.upgrade()) else {
+                    return;
+                };
+                // This timer has run, so there is nothing left of it to remove.
+                if let Some(shown) = shell.shown.borrow_mut().iter_mut().find(|shown| shown.widget == toast) {
+                    shown.timer.take();
+                }
+                shell.dismiss(&toast);
+            }));
+            self.column.append(&shown.widget);
+        }
+        self.column.set_visible(self.column.first_child().is_some());
     }
 
     /// Whether a [`crate::Dialog`] is open over this window's content.
@@ -180,8 +199,9 @@ impl Shell {
         crate::dialog::over(&self.overlay)
     }
 
-    /// Takes `toast` off the screen and runs what follows its going. A toast already gone is left alone.
-    fn dismiss(&self, toast: &gtk::Box) {
+    /// Takes `toast` off the screen, or out of the wait, and runs what follows its going. A toast already gone is
+    /// left alone.
+    fn dismiss(self: &Rc<Self>, toast: &gtk::Box) {
         let shown = {
             let mut shown = self.shown.borrow_mut();
             let Some(index) = shown.iter().position(|shown| shown.widget == *toast) else {
@@ -192,8 +212,10 @@ impl Shell {
         if let Some(timer) = shown.timer {
             timer.remove();
         }
-        self.column.remove(toast);
-        self.column.set_visible(!self.shown.borrow().is_empty());
+        if toast.parent().is_some() {
+            self.column.remove(toast);
+        }
+        self.show_waiting();
         if let Some(dismissed) = shown.dismissed {
             dismissed();
         }

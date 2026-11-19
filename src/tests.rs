@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 //! What needs GTK running: sizes, toasts, and what a dialog holds back. GTK is used from one thread only, so this is
-//! one test. It runs on a broadway display (`GDK_BACKEND=broadway`, with `gtk4-broadwayd` running), which shows
-//! nothing, and is skipped otherwise: GTK on the desktop the tests are run from would read that desktop's settings.
+//! one test. It needs a broadway display, which shows nothing: GTK on the desktop the tests are run from would read
+//! that desktop's settings. So `cargo test` lists it as ignored, and `dev/gtk-tests.sh` runs it on a display of its
+//! own.
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -10,11 +11,14 @@ use gtk::{glib, prelude::*};
 use crate::{Dialog, Shell, Split, Toast};
 
 #[test]
+#[ignore = "needs a broadway display: dev/gtk-tests.sh"]
 fn with_gtk() {
-    if std::env::var("GDK_BACKEND").as_deref() != Ok("broadway") || gtk::init().is_err() {
-        eprintln!("skipped: no broadway display for GTK");
-        return;
-    }
+    assert_eq!(
+        std::env::var("GDK_BACKEND").as_deref(),
+        Ok("broadway"),
+        "run by dev/gtk-tests.sh, on a display that shows nothing"
+    );
+    gtk::init().expect("the broadway display");
     a_split_needs_as_little_height_at_any_width();
     a_toast_with_a_button_stays_and_each_says_when_it_goes();
     a_dialog_holds_back_the_windows_shortcuts_until_it_closes();
@@ -30,9 +34,14 @@ fn a_split_needs_as_little_height_at_any_width() {
     let split = Split::new(&sidebar, &gtk::Label::new(Some("content")), (240, 320), Some(600));
     let height = |width| split.widget.measure(gtk::Orientation::Vertical, width);
     let (narrow, wide) = (height(240), height(1200));
+    // So GTK does not look for a window's least size along its shape, which could make it wider than its tile.
     assert_eq!(narrow.0, wide.0, "the least height is the same at every width");
-    assert_eq!(narrow.0, height(-1).0);
     assert!(narrow.1 > wide.1, "naturally, the text is taller where it is narrower");
+    // Given less than its text needs, the pane is laid out at what it needs and cut off at the bottom.
+    let needs = sidebar.measure(gtk::Orientation::Vertical, 240).0;
+    assert!(narrow.0 < needs);
+    split.widget.allocate(240, narrow.0, -1, None);
+    assert_eq!(sidebar.height(), needs);
 }
 
 /// The toasts on screen, by their text.
@@ -107,6 +116,39 @@ fn a_toast_with_a_button_stays_and_each_says_when_it_goes() {
     }
     assert!(!toasts(&shell).contains(&"Brief".to_owned()));
     assert_eq!(said.borrow().last(), Some(&"brief gone"));
+
+    // Three at most are on screen; the rest wait, and their time starts when they appear.
+    let window = gtk::Window::new();
+    let shell = Shell::new(&window, &gtk::Box::new(gtk::Orientation::Vertical, 0));
+    for text in ["One", "Two", "Three"] {
+        shell.toast_action(text, "Undo", 30, || {});
+    }
+    shell.add_toast(
+        Toast::new("Four")
+            .seconds(1)
+            .action("Undo", || {})
+            .on_dismissed(say("four gone")),
+    );
+    assert_eq!(toasts(&shell), ["One", "Two", "Three"]);
+    let run_for = |millis| {
+        let end = std::time::Instant::now() + std::time::Duration::from_millis(millis);
+        while said.borrow().last() != Some(&"four gone") && std::time::Instant::now() < end {
+            main.iteration(false);
+        }
+    };
+    run_for(1500);
+    assert_ne!(
+        said.borrow().last(),
+        Some(&"four gone"),
+        "a toast waiting has its time still to come"
+    );
+    // The first one's close button.
+    let first = shell.overlay.last_child().unwrap().first_child().unwrap();
+    first.last_child().and_downcast::<gtk::Button>().unwrap().emit_clicked();
+    assert_eq!(toasts(&shell), ["Two", "Three", "Four"]);
+    run_for(3000);
+    assert_eq!(said.borrow().last(), Some(&"four gone"));
+    assert_eq!(toasts(&shell), ["Two", "Three"]);
 }
 
 fn a_dialog_holds_back_the_windows_shortcuts_until_it_closes() {
