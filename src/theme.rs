@@ -161,17 +161,18 @@ fn luminance(color: &str) -> f64 {
     c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722
 }
 
-/// `$XDG_STATE_HOME`, or `~/.local/state`. Read from the environment each time: glib caches its own answer.
-fn state_home() -> PathBuf {
-    std::env::var_os("XDG_STATE_HOME")
+/// `$HOME`, read from the environment each time: glib caches its own answer.
+fn home() -> PathBuf {
+    std::env::var_os("HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
-        .unwrap_or_else(|| glib::home_dir().join(".local/state"))
+        .unwrap_or_else(glib::home_dir)
 }
 
-/// Where Omarchy keeps its current theme: `theme.name` and the `theme` directory.
+/// Where Omarchy keeps its current theme: `theme.name` and the `theme` directory. Omarchy's scripts spell the path
+/// `$HOME/.local/state/omarchy/current` whatever `XDG_STATE_HOME` says, so this does too.
 pub fn omarchy_state_dir() -> PathBuf {
-    state_home().join("omarchy/current")
+    home().join(".local/state/omarchy/current")
 }
 
 fn read_omarchy() -> Option<Tokens> {
@@ -218,18 +219,13 @@ impl Palette {
     }
 
     /// Omarchy replaces the theme directory by `mv` and rewrites theme.name on a switch. Watched: the directory the
-    /// theme path resolves to (its identity, not the stable spelling), the state directory, and its parents up to the
-    /// state home, so a state directory that appears later is seen too.
+    /// theme path resolves to (its identity, not the stable spelling), the state directory, and its parents below the
+    /// home directory, so a state directory that appears later is seen too.
     fn watch(self: &Rc<Self>) {
         let state = omarchy_state_dir();
-        let home = state_home();
+        let home = home();
         let mut dirs: Vec<PathBuf> = std::fs::canonicalize(state.join("theme")).ok().into_iter().collect();
-        dirs.extend(
-            state
-                .ancestors()
-                .take_while(|p| p.starts_with(&home))
-                .map(PathBuf::from),
-        );
+        dirs.extend(state.ancestors().take_while(|p| *p != home).map(PathBuf::from));
         let mut monitors = Vec::new();
         for dir in dirs.into_iter().filter(|d| d.is_dir()) {
             let file = gio::File::for_path(&dir);
@@ -274,7 +270,6 @@ const APP_PRIORITY: u32 = OMUI_PRIORITY + 1;
 const TOKEN_PRIORITY: u32 = APP_PRIORITY + 1;
 const OMUI_CSS: &str = include_str!("omui.css");
 const ROOT_FONT_PX: f64 = 13.0;
-const FONTS: &str = "\"JetBrains Mono\", \"JetBrainsMono Nerd Font\", monospace";
 /// An empty theme in omui's resources (data/omui.gresource.xml). GTK's own theme provider sits below the reset, so a
 /// real theme there would only cost selector matching.
 const EMPTY_GTK_THEME: &str = "OmEmpty";
@@ -299,6 +294,9 @@ impl Theme {
     /// Styles every window of `display`: the reset, GTK's built-in theme, omui's stylesheet, `app_css`, then the
     /// tokens, each above the one before. The reset is display-wide, so a process is either omui's or libadwaita's.
     /// One theme per process: a later call returns the first.
+    ///
+    /// `GTK_THEME` in the environment loads that theme whatever is pinned here. [`crate::application`] removes it; a
+    /// caller that builds its own application removes it before GTK starts.
     pub fn install(display: &gdk::Display, app_css: &str) -> Rc<Theme> {
         if let Some(theme) = Theme::get() {
             return theme;
@@ -338,10 +336,10 @@ impl Theme {
             // Values an application sets outrank the settings portal and settings.ini for the whole process. They are
             // set even when they already match, because only application values survive a later portal update.
             settings.set_gtk_theme_name(Some(EMPTY_GTK_THEME));
-            set_enum_setting(&settings, "gtk-interface-contrast", "no-preference");
+            set_enum(&settings, "gtk-interface-contrast", "no-preference");
             // Automatic rendering hints glyph outlines but not their metrics, which costs glyphs their top pixel row at
             // some sizes (GNOME/gtk#8395).
-            set_enum_setting(&settings, "gtk-font-rendering", "manual");
+            set_enum(&settings, "gtk-font-rendering", "manual");
             let weak = Rc::downgrade(&theme);
             settings.connect_gtk_xft_dpi_notify(move |_| {
                 // the desktop's text size changed
@@ -394,19 +392,21 @@ impl Theme {
     fn apply(&self) {
         let t = self.tokens();
         let root = Self::root_font_px();
+        let scheme = if t.light { "light" } else { "dark" };
+        // The built-in theme's variant follows the palette, not the desktop. Before GTK 4.20 the variants are two
+        // files. Since then both names hold one sheet that chooses by media query, and a provider answers the query
+        // from its own properties, which nothing sets for a provider an application made.
+        set_enum(&self.base, "prefers-color-scheme", scheme);
+        set_enum(&self.base, "prefers-contrast", "no-preference");
         self.base.load_from_string(&format!(
             "@import url(\"resource:///org/gtk/libgtk/theme/Default/{}\");",
             if t.light { "gtk.css" } else { "gtk-dark.css" }
         ));
         if let Some(settings) = gtk::Settings::default() {
-            // The built-in theme's variant follows the palette, not the desktop. GTK 4.20 and later read the colour
-            // scheme setting; older ones the dark-theme flag.
+            // Whatever else asks GTK for the colour scheme gets the palette's too: the setting since GTK 4.20, the
+            // dark-theme flag before.
             if settings.find_property("gtk-interface-color-scheme").is_some() {
-                set_enum_setting(
-                    &settings,
-                    "gtk-interface-color-scheme",
-                    if t.light { "light" } else { "dark" },
-                );
+                set_enum(&settings, "gtk-interface-color-scheme", scheme);
             } else {
                 settings.set_gtk_application_prefer_dark_theme(!t.light);
             }
@@ -430,20 +430,19 @@ impl Theme {
             .map(|(name, value)| format!("@define-color om_{name} {value};\n"))
             .collect();
         css.push_str(&format!(
-            "window, popover, popover.background, tooltip {{ font-size: {root}px; }}\n\
-             *, popover.background label, popover.background button {{ font-family: {FONTS}; }}\n"
+            "window, popover, popover.background, tooltip {{ font-size: {root}px; }}\n"
         ));
         self.tokens_css.load_from_string(&css);
     }
 }
 
-/// Sets an enum GTK setting by its nick, skipping properties this GTK lacks (Strata's helper).
-fn set_enum_setting(settings: &gtk::Settings, property: &str, nick: &str) {
-    let Some(spec) = settings.find_property(property) else {
+/// Sets an enum property by its nick, skipping properties this GTK lacks (Strata's helper).
+fn set_enum(object: &impl IsA<glib::Object>, property: &str, nick: &str) {
+    let Some(spec) = object.find_property(property) else {
         return;
     };
     if let Some(value) = glib::EnumClass::with_type(spec.value_type()).and_then(|class| class.to_value_by_nick(nick)) {
-        settings.set_property(property, value);
+        object.set_property(property, value);
     }
 }
 
@@ -549,17 +548,17 @@ mod tests {
         std::fs::write(dir.join("colors.toml"), colors).unwrap();
     }
 
-    /// The one test that touches the environment and the file system: Omarchy's switch, replayed in a scratch state
-    /// home. No display is involved.
+    /// The one test that touches the environment and the file system: Omarchy's switch, replayed in a scratch home.
+    /// No display is involved.
     #[test]
     fn a_theme_swapped_by_mv_is_followed() {
         let scratch = std::env::temp_dir().join(format!("omui-theme-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&scratch);
         // SAFETY: no other test in this binary reads or writes the environment, and this runs before this test starts
         // any glib thread.
-        unsafe { std::env::set_var("XDG_STATE_HOME", &scratch) };
+        unsafe { std::env::set_var("HOME", &scratch) };
         let state = omarchy_state_dir();
-        assert_eq!(state, scratch.join("omarchy/current"));
+        assert_eq!(state, scratch.join(".local/state/omarchy/current"));
         write_theme(&state.join("theme"), "#101010");
         std::fs::write(state.join("theme.name"), "night\n").unwrap();
 
@@ -610,7 +609,7 @@ mod tests {
         assert_eq!(palette.tokens.borrow().background, "#202020");
 
         // No Omarchy state at all: Tokyo Night.
-        std::fs::remove_dir_all(scratch.join("omarchy")).unwrap();
+        std::fs::remove_dir_all(scratch.join(".local/state/omarchy")).unwrap();
         settle(3, Duration::ZERO);
         assert_eq!(*palette.tokens.borrow(), Tokens::fallback());
         std::fs::remove_dir_all(&scratch).unwrap();

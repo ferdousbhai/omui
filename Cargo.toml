@@ -3,7 +3,8 @@ name = "omui"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.92"
-license = "MIT"
+# The code is MIT; the bundled icons are Lucide's (THIRD_PARTY_NOTICES.md).
+license = "MIT AND ISC"
 description = "The shared look and widgets of a family of Omarchy desktop apps: GTK 4, themed live from Omarchy, no libadwaita"
 repository = "https://github.com/ferdousbhai/omui"
 

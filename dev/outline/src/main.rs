@@ -35,6 +35,7 @@ const ICONS: &[(&str, Draw)] = &[
     ("mail", Draw::Outline),
     ("map-pin", Draw::Outline),
     ("maximize", Draw::Outline),
+    ("message-circle", Draw::Outline),
     ("minus", Draw::Outline),
     ("panel-left", Draw::Outline),
     ("pencil", Draw::Outline),
@@ -75,7 +76,8 @@ fn main() {
         outline(tree.root(), *draw, &mut paths);
         let suffix = if *draw == Draw::Filled { "-filled" } else { "" };
         let mut file = format!(
-            "<!-- Lucide {name}, ISC license; its 2px round stroke outlined as a fill for GTK symbolic recolouring. -->\n\
+            "<!-- Lucide {name}, its 2px round stroke outlined as a fill for GTK symbolic recolouring. \
+             License: data/licenses/Lucide-ISC.txt. -->\n\
              <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"#2e3436\">\n"
         );
         for d in paths {

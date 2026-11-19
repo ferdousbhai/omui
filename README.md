@@ -35,13 +35,21 @@ fn main() -> gtk::glib::ExitCode {
 `omui::gtk` is the `gtk4` crate omui was built with. An app that depends on `gtk4` itself, for a newer feature level,
 gets the same one.
 
+`omui::application` goes first in `main`: it takes `GTK_THEME` out of the environment, because that variable loads a
+desktop theme under omui's whatever else is set. An app that builds its own `gtk::Application` and calls
+`Theme::install` removes the variable itself, before GTK starts.
+
+A packaged app carries the Strata and Lucide notices with it, since its binary holds code adapted from Strata and
+the Lucide icons: ship [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)'s two entries and the texts under
+`data/licenses/` among the app's own notices.
+
 ## What is in 0.1
 
 | | |
 |---|---|
 | `application`, `main`, `background` | One-window application with the theme installed; a binary that is a window with no arguments and a command line with some; work on a thread with the result on the main loop |
 | `Theme`, `Tokens`, `blend`, `omarchy_state_dir` | The installed look, its colours, and a listener for what CSS cannot reach |
-| `icons::name::*`, `icon`, `icon_button`, `data_uri` | 37 bundled Lucide icons as GTK symbolic icons |
+| `icons::name::*`, `icon`, `icon_button`, `data_uri` | 38 bundled Lucide icons as GTK symbolic icons |
 | `Shell`, `header`, `Title`, `claim_titlebar` | The window's overlay with toasts, and its header bar |
 | `label`, `badge`, `sidebar_row`, `clear`, `set_class` | Small builders |
 | `Banner`, `EmptyState` | A message bar; what an empty page or list shows |
@@ -49,8 +57,9 @@ gets the same one.
 
 ## Theme
 
-Colours come from `$XDG_STATE_HOME/omarchy/current/theme/colors.toml` (`~/.local/state` by default). Without Omarchy
-the palette is Tokyo Night. The interface font is JetBrains Mono at 13 px times the desktop's text scale.
+Colours come from `~/.local/state/omarchy/current/theme/colors.toml`, where Omarchy writes its current theme. Without
+Omarchy the palette is Tokyo Night. The interface font is JetBrains Mono at 13 px times the desktop's text scale; an
+app's CSS may set another `font-family` on a widget or a pane.
 
 In CSS the colours are GTK named colours, tinted only with `alpha()`:
 
@@ -59,7 +68,8 @@ In CSS the colours are GTK named colours, tinted only with `alpha()`:
 
 App stylesheets use these and no hex, so they follow every theme. Stylesheets are layered above GTK's user priority:
 a reset, GTK's built-in theme, `omui.css`, the app's CSS, then the tokens. The reset covers the whole display, so
-omui and libadwaita cannot share a process.
+omui and libadwaita cannot share a process. A widget `omui.css` has no rule for keeps the built-in theme's look, dark
+or light as the palette is.
 
 ## Style classes
 
@@ -67,9 +77,18 @@ GTK and Adwaita names are kept where one exists.
 
 - Buttons: `suggested-action` `destructive-action` `flat` `pill` `circular` `osd` `header-action` `chip`
 - Text: `dim-label` `title-1` `title-2` `title-4` `heading` `caption` `numeric` `monospace` `error` `warning`
-  `success` `accent` `page-title` `section-title` `meta`
+  `success` `accent` `page-title` `section-title` `meta` `status-line`
 - Containers: `sidebar` `sidebar-row` `sidebar-footer` `toolbar` `result` `result-title` `snippet` `badge`
   `empty-state` `compact` `banner` `toast` `om-shell` `search-large`
+
+Three of them mean something narrower than the same name in an app's old stylesheet:
+
+- `sidebar` goes on the pane that holds the list and its footer, not on the list: it draws the pane's surface and
+  its border. Rows come from `sidebar_row`.
+- `empty-state` is `EmptyState`'s own box. One line of status where content will be ("Loading…", "Nothing found.",
+  an error) is a label with `status-line`.
+- Every list row gets omui's hover and selection tint. Padding belongs to the row's kind (`sidebar-row`, `result`),
+  so a plain row keeps GTK's.
 
 ## Working on it
 
@@ -95,4 +114,5 @@ The icons under `data/icons` are generated from Lucide by `dev/outline` and comm
 
 ## License
 
-MIT. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for Strata and Lucide.
+MIT. The bundled icons are Lucide's, under ISC, and MIT for those Lucide derives from Feather. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for Strata and Lucide.

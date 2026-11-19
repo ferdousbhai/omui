@@ -1,4 +1,4 @@
-<!-- Lucide calendar, ISC license; its 2px round stroke outlined as a fill for GTK symbolic recolouring. -->
+<!-- Lucide calendar, its 2px round stroke outlined as a fill for GTK symbolic recolouring. License: data/licenses/Lucide-ISC.txt. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="#2e3436">
   <path d="M9 2L9 5Q9 5.414 8.707 5.707Q8.414 6 8 6Q7.586 6 7.293 5.707Q7 5.414 7 5L7 2Q7 1.586 7.293 1.293Q7.586 1 8 1Q8.414 1 8.707 1.293Q9 1.586 9 2Z"/>
   <path d="M17 2L17 5Q17 5.414 16.707 5.707Q16.414 6 16 6Q15.586 6 15.293 5.707Q15 5.414 15 5L15 2Q15 1.586 15.293 1.293Q15.586 1 16 1Q16.414 1 16.707 1.293Q17 1.586 17 2Z"/>

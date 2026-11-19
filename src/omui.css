@@ -4,6 +4,9 @@
    src/style.css), so an omui app and Strata read as one desktop. GTK's built-in theme is restated under this sheet
    (theme.rs), so each rule here replaces that theme's look for one widget; a widget with no rule keeps GTK's. */
 
+/* The interface font, set where widgets inherit it from, so an app's rule for a widget or a pane can name another. */
+window, popover, tooltip { font-family: "JetBrains Mono", "JetBrainsMono Nerd Font", monospace; }
+
 window {
   background: @om_bg;
   color: @om_text;
@@ -36,8 +39,16 @@ paned > separator { background: alpha(@om_border, 0.6); background-image: none; 
 
 spinner { color: @om_accent; }
 
-progressbar > trough { background: alpha(@om_border, 0.35); border-radius: 2px; min-height: 4px; }
-progressbar > trough > progress { background: @om_accent; border-radius: 2px; min-height: 4px; }
+progressbar > trough, progressbar > trough > progress {
+  border: none;
+  border-radius: 2px;
+  box-shadow: none;
+  /* The built-in theme pulls the bar over the trough's border with a negative margin. */
+  margin: 0;
+  min-height: 4px;
+}
+progressbar > trough { background: alpha(@om_border, 0.35); }
+progressbar > trough > progress { background: @om_accent; }
 
 tooltip {
   background: @om_surface;
@@ -157,7 +168,8 @@ textview, textview > text { background: transparent; caret-color: @om_accent; co
 
 /* ------------------------------------------------------------------------------------------- lists and popovers -- */
 list, listview, flowbox { background: transparent; color: @om_text; }
-list > row, listview > row { border-radius: 6px; padding: 6px 8px; transition: background-color 160ms ease-out; }
+/* Every row gets omui's hover and selection in place of the built-in theme's. Padding is the row kind's own. */
+list > row, listview > row { border-radius: 6px; transition: background-color 160ms ease-out; }
 list > row.activatable:hover, listview > row.activatable:hover { background: alpha(@om_text, 0.06); }
 list > row:selected, list > row:selected:hover, listview > row:selected, listview > row:selected:hover {
   background: alpha(@om_accent, 0.18);
@@ -206,7 +218,10 @@ scrollbar.horizontal > range > trough > slider { min-width: 32px; }
 .meta { color: @om_dim_text; font-size: 0.92em; }
 .dim-label { color: @om_dim_text; opacity: 1; }
 .numeric { font-feature-settings: "tnum"; }
+/* For where an app's own rule set another family around it. */
 .monospace { font-family: "JetBrains Mono", "JetBrainsMono Nerd Font", monospace; }
+/* One quiet line where content will be: "Loading…", "Nothing found.", what went wrong. */
+.status-line { color: @om_dim_text; font-size: 1.1em; }
 .error { color: @om_danger; }
 .warning { color: @om_warning; }
 .success { color: @om_success; }
@@ -225,10 +240,11 @@ scrollbar.horizontal > range > trough > slider { min-width: 32px; }
 .badge.success { background: alpha(@om_success, 0.2); }
 
 /* ---------------------------------------------------------------------------------------------------- sidebar -- */
-/* The pane a sidebar's list and footer sit in. `.sidebar` is also a class of GTK's built-in theme, which draws its
-   own border on it. */
+/* The pane a sidebar's list and footer sit in, not the list. `.sidebar` is also a class of GTK's built-in theme,
+   which draws its own border on it. */
 .sidebar { background: @om_surface; border: none; border-right: 1px solid alpha(@om_border, 0.6); padding: 5px; }
 
+.sidebar-row { padding: 6px 8px; }
 .sidebar-row > box { border-spacing: 10px; }
 .sidebar-row image { color: @om_dim_text; -gtk-icon-size: 16px; }
 .sidebar-row .count { color: @om_dim_text; font-size: 0.88em; }
@@ -261,6 +277,7 @@ button.sidebar-footer:hover { background: alpha(@om_text, 0.06); color: @om_text
 .result .snippet { color: @om_text; }
 
 /* ---------------------------------------------------------------------------------------- states and messages -- */
+/* EmptyState's box. A lone line of status text is a label with `status-line`. */
 .empty-state { border-spacing: 8px; color: @om_dim_text; padding: 24px; }
 .empty-state > image { color: @om_dim_text; -gtk-icon-size: 48px; margin-bottom: 4px; }
 .empty-state > .title-2 { color: @om_text; }

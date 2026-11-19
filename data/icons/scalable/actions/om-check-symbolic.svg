@@ -1,4 +1,4 @@
-<!-- Lucide check, ISC license; its 2px round stroke outlined as a fill for GTK symbolic recolouring. -->
+<!-- Lucide check, its 2px round stroke outlined as a fill for GTK symbolic recolouring. License: data/licenses/Lucide-ISC.txt. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="#2e3436">
   <path d="M20.707 6.707L9.707 17.707Q9.414 18 9 18Q8.586 18 8.293 17.707L3.293 12.707Q3 12.414 3 12Q3 11.586 3.293 11.293Q3.586 11 4 11Q4.414 11 4.707 11.293L9.707 16.293L9 17L8.293 16.293L19.293 5.293Q19.586 5 20 5Q20.414 5 20.707 5.293Q21 5.586 21 6Q21 6.414 20.707 6.707Z"/>
 </svg>

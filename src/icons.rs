@@ -15,6 +15,7 @@ pub mod name {
     pub const BACK: &str = "om-chevron-left-symbolic";
     pub const BOOK: &str = "om-book-open-symbolic";
     pub const CALENDAR: &str = "om-calendar-symbolic";
+    pub const CHAT: &str = "om-message-circle-symbolic";
     pub const CHECK: &str = "om-check-symbolic";
     pub const CHECKED: &str = "om-square-check-symbolic";
     pub const CLOCK: &str = "om-clock-symbolic";
@@ -55,6 +56,7 @@ pub mod name {
         BACK,
         BOOK,
         CALENDAR,
+        CHAT,
         CHECK,
         CHECKED,
         CLOCK,

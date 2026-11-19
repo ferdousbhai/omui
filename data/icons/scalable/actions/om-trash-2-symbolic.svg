@@ -1,4 +1,4 @@
-<!-- Lucide trash-2, ISC license; its 2px round stroke outlined as a fill for GTK symbolic recolouring. -->
+<!-- Lucide trash-2, its 2px round stroke outlined as a fill for GTK symbolic recolouring. License: data/licenses/Lucide-ISC.txt. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="#2e3436">
   <path d="M11 11L11 17Q11 17.414 10.707 17.707Q10.414 18 10 18Q9.586 18 9.293 17.707Q9 17.414 9 17L9 11Q9 10.586 9.293 10.293Q9.586 10 10 10Q10.414 10 10.707 10.293Q11 10.586 11 11Z"/>
   <path d="M15 11L15 17Q15 17.414 14.707 17.707Q14.414 18 14 18Q13.586 18 13.293 17.707Q13 17.414 13 17L13 11Q13 10.586 13.293 10.293Q13.586 10 14 10Q14.414 10 14.707 10.293Q15 10.586 15 11Z"/>

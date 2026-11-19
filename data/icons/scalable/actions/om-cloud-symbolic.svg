@@ -1,4 +1,4 @@
-<!-- Lucide cloud, ISC license; its 2px round stroke outlined as a fill for GTK symbolic recolouring. -->
+<!-- Lucide cloud, its 2px round stroke outlined as a fill for GTK symbolic recolouring. License: data/licenses/Lucide-ISC.txt. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="#2e3436">
   <path d="M17.5 20L9 20Q5.91 19.999 3.623 17.922Q1.336 15.845 1.039 12.77Q0.742 9.695 2.588 7.218Q4.435 4.741 7.467 4.149Q10.499 3.556 13.142 5.155Q15.786 6.754 16.668 9.714L15.71 10L15.71 9L17.5 9Q19.778 9 21.389 10.611Q23 12.222 23 14.5Q23 16.778 21.389 18.389Q19.778 20 17.5 20ZM17.5 18Q18.95 18 19.975 16.975Q21 15.95 21 14.5Q21 13.05 19.975 12.025Q18.95 11 17.5 11L15.71 11Q15.378 11 15.112 10.802Q14.846 10.604 14.752 10.286Q14.09 8.065 12.107 6.866Q10.124 5.667 7.85 6.111Q5.576 6.556 4.192 8.414Q2.807 10.271 3.03 12.578Q3.253 14.884 4.968 16.442Q6.683 17.999 9 18L17.5 18Z"/>
 </svg>

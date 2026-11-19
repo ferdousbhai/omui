@@ -20,6 +20,8 @@ pub use widgets::{Banner, EmptyState, badge, clear, label, set_class, sidebar_ro
 /// The application `id`, named `name` as its command line is (logs, X11 WM_CLASS) and shown as `title`. Its windows
 /// are styled by omui's stylesheet and then `app_css`. It has one window: `open` builds and presents it on the first
 /// activation, and a later launch presents it again.
+///
+/// Call it first thing in `main`: it takes `GTK_THEME` out of the environment.
 pub fn application(
     id: &str,
     name: &str,
@@ -27,6 +29,10 @@ pub fn application(
     app_css: &'static str,
     open: impl Fn(&gtk::Application) + 'static,
 ) -> gtk::Application {
+    // GTK_THEME loads that theme whatever the settings say, so the empty theme `Theme::install` pins would not hold
+    // (Strata drops it the same way). GTK reads it once it starts, in `run`.
+    // SAFETY: the caller is at the start of `main`, before any thread that could be reading the environment.
+    unsafe { std::env::remove_var("GTK_THEME") };
     glib::set_prgname(Some(name));
     glib::set_application_name(title);
     let app = gtk::Application::builder().application_id(id).build();

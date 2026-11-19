@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Every omui widget in one window, for looking at a change in dark and light themes (dev/preview.sh).
 //!
-//!   OMUI_GALLERY_PAGE=controls|icons|states   the page to open on
+//!   OMUI_GALLERY_PAGE=controls|icons|states|stock   the page to open on
 //!   OMUI_SHOT=<file.png>                      with feature `dev`: write the window through `omui::dev::shot`
 
 use std::rc::Rc;
@@ -15,6 +15,7 @@ use omui::{
 /// What an app adds on top of omui.css: only its own layout.
 const APP_CSS: &str = "
 .gallery-page { padding: 20px 28px; }
+.reader { font-family: serif; }
 .swatch { border: 1px solid alpha(@om_border, 0.6); border-radius: 5px; min-height: 28px; min-width: 76px; }
 .swatch.bg { background: @om_bg; }
 .swatch.surface { background: @om_surface; }
@@ -33,6 +34,7 @@ const PAGES: &[(&str, &str, &str)] = &[
     ("controls", name::SETTINGS, "Controls"),
     ("icons", name::IMAGE, "Icons"),
     ("states", name::INFO, "States"),
+    ("stock", name::CHECKED, "GTK's own"),
 ];
 
 fn main() -> glib::ExitCode {
@@ -104,6 +106,7 @@ fn open(app: &gtk::Application) {
     stack.add_named(&controls(), Some("controls"));
     stack.add_named(&icons(), Some("icons"));
     stack.add_named(&states(&shell), Some("states"));
+    stack.add_named(&stock(), Some("stock"));
     list.connect_row_selected({
         let stack = stack.clone();
         move |_, row| {
@@ -259,6 +262,14 @@ fn controls() -> gtk::ScrolledWindow {
         .xalign(0.0)
         .build();
     column.append(&link);
+    // The family is the app's to change, for a pane as much as for one widget.
+    let reader = gtk::Box::builder().css_classes(["reader"]).spacing(12).build();
+    reader.append(&omui::label("An app's own rule sets a proportional face here,", ""));
+    reader.append(&omui::label(
+        "and monospace returns to the interface font.",
+        "monospace",
+    ));
+    column.append(&reader);
     column.append(&row(&[
         omui::label("error", "error").upcast_ref(),
         omui::label("warning", "warning").upcast_ref(),
@@ -425,10 +436,68 @@ fn states(shell: &Rc<Shell>) -> gtk::Box {
         .build();
     list.append(&omui::label("Today", "section-title"));
     list.append(&compact.widget);
+    list.append(&omui::label("Inbox", "section-title"));
+    list.append(&omui::label("Loading…", "status-line"));
     column.append(&row(&[
         empty.widget.upcast_ref(),
         gtk::Separator::new(gtk::Orientation::Vertical).upcast_ref(),
         list.upcast_ref(),
     ]));
     column
+}
+
+/// Widgets omui 0.1 has no rule for. They keep GTK's built-in look, which has to be the palette's variant: a white
+/// calendar in a dark window is the built-in theme left light.
+fn stock() -> gtk::ScrolledWindow {
+    let (scroll, column) = page();
+    column.append(&omui::label("GTK's own", "page-title"));
+    column.append(&omui::label(
+        "Widgets without an omui rule yet, in the built-in theme's variant for this palette.",
+        "dim-label",
+    ));
+    let radio = gtk::CheckButton::builder().label("Radio").active(true).build();
+    let other = gtk::CheckButton::builder().label("Other").group(&radio).build();
+    column.append(&row(&[
+        gtk::Switch::builder()
+            .active(true)
+            .valign(gtk::Align::Center)
+            .build()
+            .upcast_ref(),
+        gtk::CheckButton::builder()
+            .label("Check")
+            .active(true)
+            .build()
+            .upcast_ref(),
+        radio.upcast_ref(),
+        other.upcast_ref(),
+        gtk::SpinButton::with_range(0.0, 10.0, 1.0).upcast_ref(),
+        gtk::DropDown::from_strings(&["Week", "Month"]).upcast_ref(),
+    ]));
+    let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 1.0);
+    scale.set_value(40.0);
+    scale.set_hexpand(true);
+    let progress = gtk::ProgressBar::builder()
+        .fraction(0.4)
+        .valign(gtk::Align::Center)
+        .hexpand(true)
+        .build();
+    column.append(&row(&[scale.upcast_ref(), progress.upcast_ref()]));
+    let notebook = gtk::Notebook::builder().hexpand(true).build();
+    for tab in ["First", "Second"] {
+        let body = omui::label(&format!("{tab} page of a notebook."), "gallery-page");
+        notebook.append_page(&body, Some(&gtk::Label::new(Some(tab))));
+    }
+    let frame = gtk::Frame::builder()
+        .label("Frame")
+        .child(&omui::label("Inside a frame.", "gallery-page"))
+        .build();
+    let side = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(10)
+        .hexpand(true)
+        .build();
+    side.append(&notebook);
+    side.append(&frame);
+    column.append(&row(&[gtk::Calendar::new().upcast_ref(), side.upcast_ref()]));
+    scroll
 }

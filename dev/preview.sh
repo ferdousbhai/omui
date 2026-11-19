@@ -11,7 +11,7 @@ set -Eeuo pipefail
 # fallback. With `next-theme-dir` the scratch theme directory is then replaced by `mv` while the gallery runs, as
 # Omarchy does on a switch, and a second picture is written beside the first as `<screenshot>-switched.png`.
 #
-#   OMUI_GALLERY_PAGE   controls (default), icons or states
+#   OMUI_GALLERY_PAGE   controls (default), icons, states or stock
 #   OMUI_PREVIEW_BINARY the gallery to run (default target/debug/examples/gallery)
 #   OMUI_PREVIEW_SETTLE seconds to wait before each picture (default 4)
 if (( $# < 1 || $# > 3 )); then
@@ -25,7 +25,7 @@ next_theme=${3:-}
 here=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 binary=${OMUI_PREVIEW_BINARY:-$here/../target/debug/examples/gallery}
 [[ -x $binary ]] || { echo "preview: build the gallery first (cargo build --example gallery)" >&2; exit 1; }
-for command_name in Hyprland hyprctl grim dbus-daemon setsid; do
+for command_name in Hyprland hyprctl grim jq dbus-daemon setsid; do
   command -v "$command_name" >/dev/null || { echo "preview: $command_name is required" >&2; exit 1; }
 done
 for dir in "$theme" "$next_theme"; do
@@ -79,7 +79,8 @@ export XDG_CONFIG_HOME=$root/config XDG_STATE_HOME=$root/state XDG_DATA_HOME=$ro
 export XDG_RUNTIME_DIR=$runtime
 unset GTK_THEME
 
-current=$XDG_STATE_HOME/omarchy/current
+# Where Omarchy's scripts write it, whatever XDG_STATE_HOME says.
+current=$HOME/.local/state/omarchy/current
 # What `omarchy-theme-set` leaves behind: the theme's files in a directory of their own, and its name beside it.
 stage_theme() {
   mkdir -p "$current/$2"
@@ -117,7 +118,8 @@ printf '%s\n' \
   '  decoration = { rounding = 0, shadow = { enabled = false }, blur = { enabled = false } },' \
   '  animations = { enabled = false },' \
   '  misc = { disable_hyprland_logo = true, disable_splash_rendering = true },' \
-  '})' > "$root/hyprland.lua"
+  '})' \
+  'hl.window_rule({ match = { class = ".*" }, monitor = "omui" })' > "$root/hyprland.lua"
 unset HYPRLAND_INSTANCE_SIGNATURE
 /usr/bin/setsid /usr/bin/env WAYLAND_DISPLAY="$parent_socket" /usr/bin/Hyprland --config "$root/hyprland.lua" > "$root/hyprland.log" 2>&1 &
 hypr_pid=$!
@@ -139,15 +141,26 @@ done
 export HYPRLAND_INSTANCE_SIGNATURE=$signature WAYLAND_DISPLAY=$display
 
 # The nested compositor's own output is a window on the desktop this runs from, as large as that desktop tiles it.
-# The gallery goes on a headless output instead, whose size is the monitor rule's.
+# The gallery goes on a headless output instead, whose size is the monitor rule's; the window rule sends it there.
 hyprctl output create headless omui >/dev/null
-hyprctl dispatch 'hl.dsp.focus({ monitor = "omui" })' >/dev/null
 
 GDK_BACKEND=wayland "$binary" > "$root/gallery.log" 2>&1 &
 gallery_pid=$!
+on_output() {
+  local output
+  output=$(hyprctl monitors -j | jq 'first(.[] | select(.name == "omui") | .id)') &&
+    hyprctl clients -j | jq -e --argjson output "${output:-null}" 'any(.[]; .mapped and .monitor == $output)' >/dev/null
+}
+for _ in {1..100}; do
+  on_output && break
+  kill -0 "$gallery_pid" 2>/dev/null || break
+  sleep 0.1
+done
 shoot() {
   sleep "$settle"
   kill -0 "$gallery_pid" 2>/dev/null || { echo "preview: the gallery exited" >&2; sed -n '1,40p' "$root/gallery.log" >&2; exit 1; }
+  # A picture of an output the window is not on would be blank, and look like a result.
+  on_output || { echo "preview: the gallery's window is not on the output being captured" >&2; hyprctl clients >&2; exit 1; }
   mkdir -p "$(dirname "$1")"
   # Hyprland's own notices (it says it was started without its wrapper) would cover the header.
   hyprctl dismissnotify >/dev/null
