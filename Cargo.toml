@@ -1,0 +1,19 @@
+[package]
+name = "omui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+license = "MIT"
+description = "The shared look and widgets of a family of Omarchy desktop apps: GTK 4, themed live from Omarchy, no libadwaita"
+repository = "https://github.com/ferdousbhai/omui"
+
+[features]
+# `dev::shot`, for screenshot hooks in debug builds.
+dev = []
+
+[dependencies]
+gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
+
+[build-dependencies]
+glib-build-tools = "0.22"
+

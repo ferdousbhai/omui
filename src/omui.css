@@ -1,0 +1,290 @@
+/* omui's stylesheet. Colours are only the @om_* tokens theme.rs defines from the Omarchy theme, tinted with alpha();
+   no hex. The conventions (chrome on the surface colour with hairline borders, 5-6px corners, accent tints for hover
+   and selection, accent focus outlines, thin accent scrollbars) follow Strata (github.com/lgse/strata, MIT,
+   src/style.css), so an omui app and Strata read as one desktop. GTK's built-in theme is restated under this sheet
+   (theme.rs), so each rule here replaces that theme's look for one widget; a widget with no rule keeps GTK's. */
+
+window {
+  background: @om_bg;
+  color: @om_text;
+}
+
+/* The apps draw their own chrome on a tiling desktop; GTK's client-side decoration only supplies resize edges. */
+window.csd {
+  border-radius: 0;
+  box-shadow: 0 0 0 1px alpha(@om_border, 0.6);
+}
+
+window.csd.maximized, window.csd.fullscreen, window.csd.tiled, window.csd.tiled-top, window.csd.tiled-right,
+window.csd.tiled-bottom, window.csd.tiled-left {
+  box-shadow: none;
+}
+
+button:focus-visible, entry:focus-within, row:focus-visible, flowboxchild:focus-visible, link:focus-visible,
+label:focus-visible {
+  outline: 2px solid @om_accent;
+  outline-offset: -2px;
+}
+
+selection, entry selection, text selection, label selection { background: alpha(@om_accent, 0.35); color: @om_text; }
+
+link, label link { color: @om_accent; text-decoration-line: none; }
+link:hover, label link:hover { text-decoration-line: underline; }
+
+separator { background: alpha(@om_border, 0.6); min-height: 1px; min-width: 1px; }
+paned > separator { background: alpha(@om_border, 0.6); background-image: none; min-height: 1px; min-width: 1px; }
+
+spinner { color: @om_accent; }
+
+progressbar > trough { background: alpha(@om_border, 0.35); border-radius: 2px; min-height: 4px; }
+progressbar > trough > progress { background: @om_accent; border-radius: 2px; min-height: 4px; }
+
+tooltip {
+  background: @om_surface;
+  border: 1px solid alpha(@om_border, 0.6);
+  border-radius: 5px;
+  box-shadow: none;
+  color: @om_text;
+  padding: 4px 8px;
+}
+tooltip label { color: @om_text; }
+
+/* ------------------------------------------------------------------------------------------------- header bar -- */
+headerbar {
+  background: @om_surface;
+  border-bottom: 1px solid alpha(@om_border, 0.6);
+  box-shadow: none;
+  color: @om_text;
+  min-height: 40px;
+  padding: 0 6px;
+}
+
+headerbar > windowhandle > box { border-spacing: 4px; min-height: 40px; }
+headerbar .title { font-weight: 650; }
+headerbar .subtitle { color: @om_dim_text; font-size: 0.85em; }
+
+/* A bar of actions inside the content, above or below it. */
+.toolbar {
+  background: @om_surface;
+  border-spacing: 4px;
+  padding: 4px 6px;
+}
+
+/* ---------------------------------------------------------------------------------------------------- buttons -- */
+button {
+  background: alpha(@om_text, 0.06);
+  border: 1px solid alpha(@om_border, 0.6);
+  border-radius: 5px;
+  box-shadow: none;
+  color: @om_text;
+  min-height: 24px;
+  min-width: 16px;
+  padding: 2px 12px;
+  text-shadow: none;
+  transition: background 160ms ease-out, border-color 160ms ease-out;
+}
+button:hover { background: alpha(@om_accent, 0.15); }
+button:active, button:checked { background: alpha(@om_accent, 0.22); }
+button:disabled { background: alpha(@om_text, 0.03); border-color: alpha(@om_border, 0.3); color: alpha(@om_text, 0.4); }
+button image { -gtk-icon-size: 16px; }
+/* A button holding an icon and a label. */
+button > box { border-spacing: 6px; }
+
+button.suggested-action {
+  background: alpha(@om_accent, 0.18);
+  border-color: alpha(@om_accent, 0.6);
+  font-weight: 650;
+}
+button.suggested-action:hover { background: alpha(@om_accent, 0.26); }
+button.suggested-action:active { background: alpha(@om_accent, 0.34); }
+
+button.destructive-action {
+  background: alpha(@om_danger, 0.14);
+  border-color: alpha(@om_danger, 0.6);
+  font-weight: 650;
+}
+button.destructive-action:hover { background: alpha(@om_danger, 0.24); }
+button.destructive-action:active { background: alpha(@om_danger, 0.32); }
+
+button.suggested-action:disabled, button.destructive-action:disabled {
+  background: alpha(@om_text, 0.03);
+  border-color: alpha(@om_border, 0.3);
+}
+
+button.flat, button.header-action { background: transparent; border-color: transparent; }
+button.flat:hover, button.header-action:hover, button.header-action.active { background: alpha(@om_accent, 0.15); }
+button.flat:active, button.flat:checked, button.header-action:active, button.header-action:checked {
+  background: alpha(@om_accent, 0.22);
+}
+button.flat:disabled, button.header-action:disabled { background: transparent; border-color: transparent; }
+
+button.header-action { min-width: 24px; padding: 4px; }
+button.pill { border-radius: 999px; padding: 4px 18px; }
+button.circular { border-radius: 999px; min-width: 24px; padding: 4px; }
+
+button.osd {
+  background: alpha(@om_surface, 0.85);
+  border-color: alpha(@om_border, 0.6);
+}
+button.osd:hover { background: @om_muted; }
+
+/* Filter chips: quiet until chosen. */
+button.chip { background: transparent; padding: 1px 10px; }
+button.chip:hover { background: alpha(@om_accent, 0.15); }
+button.chip:checked, button.chip.active { background: alpha(@om_accent, 0.18); border-color: alpha(@om_accent, 0.6); }
+
+/* ----------------------------------------------------------------------------------------------------- fields -- */
+entry {
+  background: alpha(@om_text, 0.04);
+  border: 1px solid alpha(@om_border, 0.6);
+  border-radius: 5px;
+  box-shadow: none;
+  caret-color: @om_accent;
+  color: @om_text;
+  min-height: 26px;
+  padding: 0 8px;
+}
+entry:focus-within { border-color: @om_accent; outline: none; }
+entry:disabled { background: alpha(@om_text, 0.02); border-color: alpha(@om_border, 0.3); color: alpha(@om_text, 0.4); }
+entry > text > placeholder { color: @om_dim_text; }
+entry > image { color: @om_dim_text; -gtk-icon-size: 16px; }
+entry > image.left { margin-right: 6px; }
+entry > image.right { margin-left: 6px; }
+entry.search-large { font-size: 1.1em; min-height: 34px; }
+entry.error { border-color: @om_danger; }
+
+textview, textview > text { background: transparent; caret-color: @om_accent; color: @om_text; }
+
+/* ------------------------------------------------------------------------------------------- lists and popovers -- */
+list, listview, flowbox { background: transparent; color: @om_text; }
+list > row, listview > row { border-radius: 6px; padding: 6px 8px; transition: background-color 160ms ease-out; }
+list > row.activatable:hover, listview > row.activatable:hover { background: alpha(@om_text, 0.06); }
+list > row:selected, list > row:selected:hover, listview > row:selected, listview > row:selected:hover {
+  background: alpha(@om_accent, 0.18);
+  color: @om_text;
+}
+
+popover > contents {
+  background: @om_surface;
+  border: 1px solid alpha(@om_border, 0.6);
+  border-radius: 9px;
+  box-shadow: 0 4px 14px alpha(black, 0.3);
+  color: @om_text;
+  padding: 5px;
+}
+popover > arrow { background: @om_surface; border: 1px solid alpha(@om_border, 0.6); }
+popover modelbutton { border-radius: 5px; color: @om_text; min-height: 24px; padding: 2px 8px; }
+popover modelbutton:hover { background: alpha(@om_accent, 0.15); }
+popover modelbutton:disabled { color: alpha(@om_text, 0.4); }
+
+/* ------------------------------------------------------------------------------------------------- scrollbars -- */
+scrolledwindow > undershoot, scrolledwindow > overshoot { background: none; box-shadow: none; }
+
+scrollbar, scrollbar:hover, scrollbar.hovering, scrollbar.dragging {
+  background: transparent;
+  border: none;
+  margin: 0;
+  padding: 0;
+  transition: opacity 180ms ease-out;
+}
+scrollbar.vertical, scrollbar.vertical > range > trough, scrollbar.vertical > range > trough > slider { min-width: 4px; }
+scrollbar.horizontal, scrollbar.horizontal > range > trough, scrollbar.horizontal > range > trough > slider {
+  min-height: 4px;
+}
+scrollbar > range > trough { background: alpha(@om_border, 0.25); border-radius: 2px; }
+scrollbar:hover > range > trough, scrollbar.dragging > range > trough { background: alpha(@om_border, 0.45); }
+scrollbar > range > trough > slider { background: @om_accent; border: none; border-radius: 2px; margin: 0; }
+scrollbar.vertical > range > trough > slider { min-height: 32px; }
+scrollbar.horizontal > range > trough > slider { min-width: 32px; }
+
+/* ------------------------------------------------------------------------------------------------- text kinds -- */
+.title-1, .page-title { font-size: 1.7em; font-weight: 700; }
+.title-2 { font-size: 1.35em; font-weight: 700; }
+.title-4, .section-title { font-size: 1.15em; font-weight: 700; }
+.heading { font-weight: 650; }
+.caption { font-size: 0.85em; }
+.meta { color: @om_dim_text; font-size: 0.92em; }
+.dim-label { color: @om_dim_text; opacity: 1; }
+.numeric { font-feature-settings: "tnum"; }
+.monospace { font-family: "JetBrains Mono", "JetBrainsMono Nerd Font", monospace; }
+.error { color: @om_danger; }
+.warning { color: @om_warning; }
+.success { color: @om_success; }
+.accent { color: @om_accent; }
+
+.badge {
+  background: alpha(@om_accent, 0.18);
+  border-radius: 4px;
+  color: @om_text;
+  font-size: 0.8em;
+  font-weight: 650;
+  padding: 1px 6px;
+}
+.badge.error { background: alpha(@om_danger, 0.2); }
+.badge.warning { background: alpha(@om_warning, 0.2); }
+.badge.success { background: alpha(@om_success, 0.2); }
+
+/* ---------------------------------------------------------------------------------------------------- sidebar -- */
+/* The pane a sidebar's list and footer sit in. `.sidebar` is also a class of GTK's built-in theme, which draws its
+   own border on it. */
+.sidebar { background: @om_surface; border: none; border-right: 1px solid alpha(@om_border, 0.6); padding: 5px; }
+
+.sidebar-row > box { border-spacing: 10px; }
+.sidebar-row image { color: @om_dim_text; -gtk-icon-size: 16px; }
+.sidebar-row .count { color: @om_dim_text; font-size: 0.88em; }
+.sidebar-row:selected image { color: @om_accent; }
+
+button.sidebar-footer {
+  background: transparent;
+  border-color: transparent;
+  border-radius: 6px;
+  color: @om_dim_text;
+  font-size: 0.88em;
+  margin: 5px;
+  padding: 4px 8px;
+}
+button.sidebar-footer:hover { background: alpha(@om_text, 0.06); color: @om_text; }
+.sidebar-footer image { color: @om_accent; }
+
+/* ------------------------------------------------------------------------------------------------ result rows -- */
+.result {
+  background: transparent;
+  border: 1px solid alpha(@om_border, 0.35);
+  border-radius: 6px;
+  color: @om_text;
+  padding: 10px;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out;
+}
+.result:hover { background: alpha(@om_text, 0.04); border-color: alpha(@om_border, 0.8); }
+.result:selected, .result:focus-visible { background: alpha(@om_accent, 0.12); border-color: alpha(@om_accent, 0.6); }
+.result .result-title { font-weight: 650; }
+.result .snippet { color: @om_text; }
+
+/* ---------------------------------------------------------------------------------------- states and messages -- */
+.empty-state { border-spacing: 8px; color: @om_dim_text; padding: 24px; }
+.empty-state > image { color: @om_dim_text; -gtk-icon-size: 48px; margin-bottom: 4px; }
+.empty-state > .title-2 { color: @om_text; }
+/* The widget under the text: a button, mostly. */
+.empty-state > box { margin-top: 8px; }
+.empty-state.compact { border-spacing: 4px; padding: 12px; }
+.empty-state.compact > image { -gtk-icon-size: 24px; margin-bottom: 0; }
+.empty-state.compact > .title-2 { font-size: 1em; font-weight: 650; }
+
+.banner {
+  background: alpha(@om_accent, 0.14);
+  border-bottom: 1px solid alpha(@om_accent, 0.35);
+  border-spacing: 8px;
+  color: @om_text;
+  padding: 6px 8px 6px 12px;
+}
+
+.toast {
+  background: @om_muted;
+  border: 1px solid alpha(@om_border, 0.8);
+  border-radius: 6px;
+  border-spacing: 6px;
+  box-shadow: 0 4px 14px alpha(black, 0.3);
+  color: @om_text;
+  margin: 18px;
+  padding: 4px 4px 4px 12px;
+}

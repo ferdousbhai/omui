@@ -1,0 +1,13 @@
+# The maintainer tool that produces data/icons: run once per icon change, its output is committed.
+# It is its own package so that omui itself depends on nothing but GTK.
+[package]
+name = "omui-outline"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+usvg = { version = "0.45", default-features = false }
+
+[workspace]
