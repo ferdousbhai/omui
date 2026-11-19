@@ -27,6 +27,27 @@ type Handler = Rc<dyn Fn(&Dialog, &str)>;
 /// The backdrop's class, which is also how a window's open dialogs are found.
 const BACKDROP: &str = "dialog-backdrop";
 
+/// How wide a dialog with a heading or a body is where the window has room, when the app gives its widget no width:
+/// a card of 372 pixels, as libadwaita's alert dialogs are, and the card's margins. Text then wraps at that width,
+/// rather than making a card as wide as its longest paragraph.
+pub(crate) const DIALOG_WIDTH: i32 = 372 + 2 * 24;
+
+/// The shortcut controllers GTK puts on every window that a dialog leaves alone: the window's own keys (Tab between
+/// widgets, Enter), and the two that run the managed shortcuts of whatever is in the window, the dialog's included.
+/// The shortcuts of what the dialog covers are held back one by one.
+const WINDOW_KEYS: [&str; 3] = [
+    "gtk-widget-class-shortcuts",
+    "gtk-shortcut-manager-capture",
+    "gtk-shortcut-manager-bubble",
+];
+
+thread_local! {
+    /// The shortcut controllers held back on each window that has a dialog open, with the phase each is given back.
+    static HELD_SHORTCUTS: RefCell<Vec<(glib::WeakRef<gtk::Window>, Vec<HeldShortcut>)>> = RefCell::default();
+}
+
+type HeldShortcut = (gtk::ShortcutController, gtk::PropagationPhase);
+
 /// The two properties a dialog takes from the rest of its window, each with the class that marks a widget it was
 /// taken from. omui.css fades a title bar by the second.
 const HELD: [(&str, &str); 2] = [("can-focus", "om-held-can-focus"), ("can-target", "om-held-can-target")];
@@ -71,7 +92,13 @@ impl glib::clone::Upgrade for WeakDialog {
 
 struct Inner {
     card: gtk::Box,
+    /// What the card is shown in, and what sizes it: [`DIALOG_WIDTH`] for a dialog that has a heading or a body,
+    /// until the app sizes its widget.
+    frame: gtk::Box,
+    frame_size: PreferredLayout,
     heading: Option<gtk::Label>,
+    /// The close button of [`Dialog::set_close_button`], once asked for.
+    close_button: RefCell<Option<gtk::Button>>,
     title: RefCell<Option<String>>,
     /// Where the app's widget scrolls, and inside it the box that holds the widget.
     extra: gtk::ScrolledWindow,
@@ -97,8 +124,6 @@ impl Dialog {
         let card = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .css_classes(["dialog"])
-            .halign(gtk::Align::Center)
-            .valign(gtk::Align::Center)
             .overflow(gtk::Overflow::Hidden)
             .accessible_role(gtk::AccessibleRole::Dialog)
             .build();
@@ -143,11 +168,25 @@ impl Dialog {
             .build();
         card.append(&extra);
         card.append(&actions);
+        // A box for its `append` alone, as the content's is.
+        let frame = gtk::Box::builder()
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            .build();
+        let frame_size: PreferredLayout = glib::Object::new();
+        if heading.is_some() || body.is_some() {
+            frame_size.set_size(DIALOG_WIDTH, -1);
+        }
+        frame.set_layout_manager(Some(frame_size.clone()));
+        frame.append(&card);
 
         let dialog = Self {
             inner: Rc::new(Inner {
                 card,
+                frame,
+                frame_size,
                 heading,
+                close_button: RefCell::new(None),
                 title: RefCell::new(None),
                 extra,
                 content,
@@ -259,14 +298,57 @@ impl Dialog {
     /// The size of the app's widget where the window has room for it, in pixels, as the content size of an
     /// `adw::Dialog` is; -1 leaves a dimension to the widget. In a narrower window the widget is narrower, down to
     /// the least it can be, and in a lower one it scrolls.
+    ///
+    /// A dialog with a heading or a body is 420 pixels wide, margins included, until a width is given here; one with
+    /// neither is as wide as its widget.
     pub fn set_content_size(&self, width: i32, height: i32) {
         self.inner.content_size.set_size(width, height);
+        if width >= 0 {
+            self.inner.frame_size.set_size(-1, -1);
+        }
     }
 
-    /// Whether Escape and [`Dialog::close`] close the dialog. Off while work that must finish is running: then only a
-    /// response or [`Dialog::force_close`] does.
+    /// Whether Escape, [`Dialog::close`] and the close button close the dialog. Off while work that must finish is
+    /// running: then only a response or [`Dialog::force_close`] does, and the close button is hidden.
     pub fn set_can_close(&self, on: bool) {
         self.inner.can_close.set(on);
+        if let Some(button) = self.inner.close_button.borrow().as_ref() {
+            button.set_visible(on);
+        }
+    }
+
+    /// A close button at the end of the heading, as a preferences or an about dialog has (`adw::Dialog`): it closes
+    /// as Escape does. For a dialog that has no responses, or none that only closes it.
+    pub fn set_close_button(&self, on: bool) {
+        if let Some(button) = self.inner.close_button.borrow().as_ref() {
+            button.set_visible(on && self.inner.can_close.get());
+            return;
+        }
+        if !on {
+            return;
+        }
+        let button = crate::icon_button(crate::icons::name::CLOSE, "Close");
+        button.add_css_class("dialog-close");
+        button.set_halign(gtk::Align::End);
+        button.set_valign(gtk::Align::Start);
+        button.set_hexpand(true);
+        button.set_visible(self.inner.can_close.get());
+        let weak = self.downgrade();
+        button.connect_clicked(move |_| {
+            if let Some(dialog) = weak.upgrade() {
+                dialog.close();
+            }
+        });
+        // The heading and the button side by side, on the first line of the card.
+        let line = gtk::Box::builder().css_classes(["dialog-header"]).build();
+        if let Some(heading) = &self.inner.heading {
+            self.inner.card.remove(heading);
+            heading.set_hexpand(true);
+            line.append(heading);
+        }
+        line.append(&button);
+        self.inner.card.prepend(&line);
+        self.inner.close_button.replace(Some(button));
     }
 
     /// Runs `f` with the response's id after the dialog has closed. The dialog's widgets are still there to read.
@@ -296,7 +378,7 @@ impl Dialog {
         self.inner.mnemonics.replace(Some(mnemonics));
         // Homogeneous, so the card has the whole of it to centre itself in, and no more than that to grow to.
         let backdrop = gtk::Box::builder().css_classes([BACKDROP]).homogeneous(true).build();
-        backdrop.append(&self.inner.card);
+        backdrop.append(&self.inner.frame);
         backdrop.add_controller(self.keys());
         // GTK drops the focus when Tab runs off the last widget, or when the focused one is disabled or removed. The
         // window would then get the keys, and Escape would not arrive here. Where the focus went is known only
@@ -329,7 +411,7 @@ impl Dialog {
             .modal(true)
             .destroy_with_parent(true)
             .resizable(false)
-            .child(&self.inner.card)
+            .child(&self.inner.frame)
             .build();
         window.set_transient_for(parent);
         window.set_title(title.as_deref());
@@ -508,7 +590,7 @@ impl Dialog {
             window.set_child(gtk::Widget::NONE);
             window.destroy();
         } else if let Some(backdrop) = surface.downcast_ref::<gtk::Box>() {
-            backdrop.remove(&self.inner.card);
+            backdrop.remove(&self.inner.frame);
             if let Some(mnemonics) = self.inner.mnemonics.take()
                 && let Some(window) = mnemonics.widget()
             {
@@ -526,9 +608,36 @@ impl Dialog {
     }
 }
 
+/// Whether a [`Dialog`] is open over the window `widget` is in, drawn on its [`crate::Shell`]. While one is, the
+/// window's shortcuts and the application's accelerators do nothing there: an action they share with a menu or a
+/// button needs no check of its own.
+pub fn dialog_open(widget: &impl IsA<gtk::Widget>) -> bool {
+    widget
+        .as_ref()
+        .root()
+        .and_downcast::<gtk::Window>()
+        .and_then(|window| window.child())
+        .and_downcast::<gtk::Overlay>()
+        .is_some_and(|overlay| overlay.has_css_class("om-shell") && over(&overlay))
+}
+
+/// Whether a dialog's backdrop is on `overlay`.
+pub(crate) fn over(overlay: &gtk::Overlay) -> bool {
+    let mut child = overlay.first_child();
+    while let Some(widget) = child {
+        if widget.has_css_class(BACKDROP) {
+            return true;
+        }
+        child = widget.next_sibling();
+    }
+    false
+}
+
 /// Leaves the keyboard and the pointer to the topmost dialog on `overlay`: `arriving` when one is about to be added,
 /// else the last one there. Everything else on the overlay and the window's title bar is held back while there is a
-/// dialog, and let go when the last one closes, in whatever order they close.
+/// dialog, and let go when the last one closes, in whatever order they close. So are the shortcuts of all that, and
+/// of the window: those of a menu, an accelerator or a page would otherwise act behind the dialog, as GTK hands them
+/// keys from anywhere in the window.
 fn hold_back(overlay: &gtk::Overlay, arriving: Option<&gtk::Widget>) {
     let mut others = Vec::new();
     let mut top = arriving.cloned();
@@ -541,13 +650,80 @@ fn hold_back(overlay: &gtk::Overlay, arriving: Option<&gtk::Widget>) {
             others.push(widget);
         }
     }
-    others.extend(overlay.root().and_downcast::<gtk::Window>().and_then(|w| w.titlebar()));
-    for widget in others {
-        set_held(&widget, top.is_some());
+    let window = overlay.root().and_downcast::<gtk::Window>();
+    others.extend(window.as_ref().and_then(|w| w.titlebar()));
+    for widget in &others {
+        set_held(widget, top.is_some());
     }
-    if let Some(top) = top {
-        set_held(&top, false);
+    if let Some(top) = &top {
+        set_held(top, false);
     }
+    if let Some(window) = window {
+        let mut shortcuts = Vec::new();
+        if top.is_some() {
+            shortcuts.extend(
+                controllers(window.upcast_ref())
+                    .into_iter()
+                    .filter(|controller| !WINDOW_KEYS.contains(&controller.name().as_deref().unwrap_or_default())),
+            );
+            for widget in &others {
+                shortcuts_within(widget, &mut shortcuts);
+            }
+        }
+        hold_shortcuts(&window, shortcuts);
+    }
+}
+
+/// The shortcut controllers on `widget`.
+fn controllers(widget: &gtk::Widget) -> Vec<gtk::ShortcutController> {
+    widget
+        .observe_controllers()
+        .iter::<glib::Object>()
+        .filter_map(|controller| controller.ok()?.downcast().ok())
+        .collect()
+}
+
+/// The shortcuts of `widget` and all inside it that GTK runs from the window: those in managed and global scope. A
+/// local one runs only while the keyboard is inside its widget, which a dialog does not let it be.
+fn shortcuts_within(widget: &gtk::Widget, found: &mut Vec<gtk::ShortcutController>) {
+    found.extend(
+        controllers(widget)
+            .into_iter()
+            .filter(|controller| controller.scope() != gtk::ShortcutScope::Local),
+    );
+    let mut child = widget.first_child();
+    while let Some(widget) = child {
+        shortcuts_within(&widget, found);
+        child = widget.next_sibling();
+    }
+}
+
+/// Holds back exactly `shortcuts` on `window`: each is given propagation phase None, which also takes a managed one
+/// out of the window's reach, and those held before and not now get their phase back.
+fn hold_shortcuts(window: &gtk::Window, shortcuts: Vec<gtk::ShortcutController>) {
+    HELD_SHORTCUTS.with_borrow_mut(|held| {
+        held.retain(|(window, _)| window.upgrade().is_some());
+        let index = held.iter().position(|(w, _)| w.upgrade().as_ref() == Some(window));
+        let mut before = index.map(|index| held.remove(index).1).unwrap_or_default();
+        let mut now = Vec::new();
+        for controller in shortcuts {
+            match before.iter().position(|(held, _)| *held == controller) {
+                Some(index) => now.push(before.remove(index)),
+                None if controller.propagation_phase() != gtk::PropagationPhase::None => {
+                    let phase = controller.propagation_phase();
+                    controller.set_propagation_phase(gtk::PropagationPhase::None);
+                    now.push((controller, phase));
+                }
+                None => {}
+            }
+        }
+        for (controller, phase) in before {
+            controller.set_propagation_phase(phase);
+        }
+        if !now.is_empty() {
+            held.push((window.downgrade(), now));
+        }
+    });
 }
 
 /// Takes `can-focus` and `can-target` from a widget and all inside it, or gives them back. A class remembers each
@@ -582,7 +758,8 @@ fn mnemonic_label(widget: &gtk::Widget, key: gdk::Key) -> Option<gtk::Label> {
     None
 }
 
-/// Asks before `action`: a dialog with Cancel and a button labelled `action`, drawn as `appearance`. `yes` runs when
+/// Asks before `action`: a dialog with Cancel (Alt+C) and a button labelled `action` (which may mark its own
+/// mnemonic), drawn as `appearance`. `yes` runs when
 /// that button is chosen. Enter chooses it too, unless it is destructive: then Enter cancels, as Escape does.
 pub fn confirm(
     parent: &impl IsA<gtk::Widget>,
@@ -593,7 +770,7 @@ pub fn confirm(
     yes: impl FnOnce() + 'static,
 ) {
     let dialog = Dialog::new(Some(heading), Some(body));
-    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("cancel", "_Cancel");
     dialog.add_response("confirm", action);
     dialog.set_response_appearance("confirm", appearance);
     dialog.set_default_response(if appearance == Appearance::Destructive {
@@ -610,5 +787,19 @@ pub fn confirm(
             yes();
         }
     });
+    dialog.present(parent);
+}
+
+/// The app's name, version and a few lines about it (what it does, who made it, its licence), with a link to its
+/// website: what an About item in a window's menu opens (`adw::AboutDialog`). It closes from its close button or
+/// Escape.
+pub fn about(parent: &impl IsA<gtk::Widget>, name: &str, version: &str, text: &str, website: Option<&str>) {
+    let dialog = Dialog::new(Some(name), Some(&format!("Version {version}\n\n{text}")));
+    if let Some(website) = website {
+        let link = gtk::LinkButton::with_label(website, "Website");
+        link.set_halign(gtk::Align::Start);
+        dialog.set_extra_child(Some(link.upcast_ref()));
+    }
+    dialog.set_close_button(true);
     dialog.present(parent);
 }

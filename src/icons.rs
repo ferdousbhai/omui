@@ -175,6 +175,19 @@ pub fn icon_button(name: &str, tooltip: &str) -> gtk::Button {
     button
 }
 
+/// A borderless icon button that opens `menu`, drawn as an [`icon_button`]: a header bar's main menu. `tooltip` is
+/// also its accessible name.
+pub fn icon_menu_button(name: &str, tooltip: &str, menu: &impl IsA<gio::MenuModel>) -> gtk::MenuButton {
+    let button = gtk::MenuButton::builder()
+        .icon_name(name)
+        .tooltip_text(tooltip)
+        .has_frame(false)
+        .menu_model(menu)
+        .build();
+    button.update_property(&[gtk::accessible::Property::Label(tooltip)]);
+    button
+}
+
 /// A bundled icon as a `data:` URI drawn in the colour `hex`, for a WebKit page whose policy allows `img-src data:`.
 ///
 /// # Panics

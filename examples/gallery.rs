@@ -3,16 +3,18 @@
 //!
 //!   OMUI_GALLERY_PAGE=controls|icons|states|dialogs|inputs|menus|views|split|nav|tabs|rows|avatars
 //!                                             the page to open on, with the keyboard in it
-//!   OMUI_GALLERY_OPEN=confirm|send|rename|upload|stop|tall|window|dropdown|menu|popover|contact|recovery|settings
-//!                                             what to open on its page, as a click would
-//!   OMUI_GALLERY_TRACE=1                      print each focus change, dialog answer, and change of a split, a
-//!                                             stack of pages or an expander (dev/keys.sh reads them)
+//!   OMUI_GALLERY_OPEN=confirm|send|rename|upload|stop|tall|alert|about|window|dropdown|menu|popover|contact|
+//!                     recovery|settings|push|toasts
+//!                                             what to open on its page, as a click or an action would
+//!   OMUI_GALLERY_TRACE=1                      print each focus change, dialog answer, shortcut, toast dismissed,
+//!                                             change of a split, a stack of pages or an expander, and the window's
+//!                                             width once it is laid out (dev/keys.sh reads them)
 //!   OMUI_SHOT=<file.png>                      with feature `dev`: write the window through `omui::dev::shot`
 
 use std::{cell::Cell, rc::Rc};
 
 use omui::{
-    Appearance, Banner, Dialog, EmptyState, ExpanderRow, Group, Nav, Row, Shell, Split, Theme, Title,
+    Appearance, Banner, Dialog, EmptyState, ExpanderRow, Group, Nav, Row, Shell, Split, Theme, Title, Toast,
     gtk::{self, gio, glib, prelude::*},
     icons::name,
 };
@@ -102,14 +104,7 @@ fn open(app: &gtk::Application) {
     more.append(Some("Lost Mode…"), Some("win.lost-mode"));
     window.add_action(&gio::SimpleAction::new("play-sound", None));
     window.add_action(&gio::SimpleAction::new("lost-mode", None));
-    header.pack_end(
-        &gtk::MenuButton::builder()
-            .icon_name(name::MORE)
-            .tooltip_text("Device actions")
-            .has_frame(false)
-            .menu_model(&more)
-            .build(),
-    );
+    header.pack_end(&omui::icon_menu_button(name::MORE, "Device actions", &more));
     header.pack_end(&omui::icon_button(name::ADD, "New"));
     header.pack_end(&omui::icon_button(name::SEARCH, "Search"));
     window.set_titlebar(Some(&header));
@@ -119,6 +114,8 @@ fn open(app: &gtk::Application) {
     // As wide as the page it shows needs, not as the widest of them: the window can then be narrow.
     let stack = gtk::Stack::builder().hexpand(true).hhomogeneous(false).build();
     let list = gtk::ListBox::builder().vexpand(true).build();
+    // Tab passes the sidebar in one step: on its way through, it would show every page it went by.
+    omui::single_tab_stop(&list);
     for (id, icon, text) in PAGES {
         list.append(&omui::sidebar_row(
             id,
@@ -169,11 +166,12 @@ fn open(app: &gtk::Application) {
         }
     });
     let shell = Shell::new(&window, &split.widget);
+    shortcuts(app, &window, &stack);
 
     stack.add_named(&controls(), Some("controls"));
     stack.add_named(&icons(), Some("icons"));
-    stack.add_named(&states(&shell), Some("states"));
     let mut openers = Openers::new();
+    stack.add_named(&states(&shell, &mut openers), Some("states"));
     stack.add_named(&dialogs(app, &mut openers), Some("dialogs"));
     stack.add_named(&inputs(&mut openers), Some("inputs"));
     stack.add_named(&menus(&mut openers), Some("menus"));
@@ -208,7 +206,7 @@ fn open(app: &gtk::Application) {
     );
     let index = PAGES.iter().position(|(id, ..)| *id == first).unwrap_or(0);
     list.select_row(list.row_at_index(index as i32).as_ref());
-    if PAGES[index].0 == "states" {
+    if PAGES[index].0 == "states" && opener.is_none() {
         shell.toast_action("Moved 3 notes to the trash", "Undo", 30, {
             let shell = Rc::downgrade(&shell);
             move || {
@@ -220,6 +218,15 @@ fn open(app: &gtk::Application) {
     }
     if std::env::var_os("OMUI_GALLERY_TRACE").is_some() {
         window.connect_focus_widget_notify(|window| trace(&format!("focus: {}", focus_name(RootExt::focus(window)))));
+        // Once the compositor has tiled it: a window wider than its tile is a measure that asks for too much.
+        glib::timeout_add_local_once(std::time::Duration::from_millis(1200), {
+            let window = window.downgrade();
+            move || {
+                if let Some(window) = window.upgrade() {
+                    trace(&format!("width: {}", window.width()));
+                }
+            }
+        });
     }
     // The shell shows toasts for as long as its `Rc` is held: here, as long as the window.
     let held = std::cell::RefCell::new(Some(shell.clone()));
@@ -245,6 +252,43 @@ fn open(app: &gtk::Application) {
             }
         });
     }
+}
+
+/// The keys an app binds in its window, each of the three ways GTK has: Delete from a shortcut in the content
+/// (managed, as Photos' viewer has), Ctrl+U as an application accelerator, F5 on the window itself. Each asks or
+/// toasts as the app would. None of them may reach the window while a dialog is open over it.
+fn shortcuts(app: &gtk::Application, window: &gtk::ApplicationWindow, content: &gtk::Stack) {
+    let delete = gtk::ShortcutController::new();
+    delete.set_scope(gtk::ShortcutScope::Managed);
+    delete.add_shortcut(gtk::Shortcut::new(
+        gtk::ShortcutTrigger::parse_string("Delete"),
+        Some(gtk::CallbackAction::new(|content, _| {
+            trace("shortcut: delete");
+            omui::confirm(
+                content,
+                "Delete this photo?",
+                "It moves to Recently Deleted on all your devices.",
+                "Delete",
+                Appearance::Destructive,
+                || trace("answer: deleted"),
+            );
+            glib::Propagation::Stop
+        })),
+    ));
+    content.add_controller(delete);
+    let upload = gio::SimpleAction::new("upload", None);
+    upload.connect_activate(|_, _| trace("shortcut: upload"));
+    window.add_action(&upload);
+    app.set_accels_for_action("win.upload", &["<Primary>u"]);
+    let refresh = gtk::ShortcutController::new();
+    refresh.add_shortcut(gtk::Shortcut::new(
+        gtk::ShortcutTrigger::parse_string("F5"),
+        Some(gtk::CallbackAction::new(|_, _| {
+            trace("shortcut: refresh");
+            glib::Propagation::Stop
+        })),
+    ));
+    window.add_controller(refresh);
 }
 
 /// What has the keyboard, for the trace: a button's label or tooltip, else what kind of widget it is and the first
@@ -548,7 +592,7 @@ fn icons() -> gtk::ScrolledWindow {
     scroll
 }
 
-fn states(shell: &Rc<Shell>) -> gtk::Box {
+fn states(shell: &Rc<Shell>, openers: &mut Openers) -> gtk::Box {
     let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
     let banner = Banner::new(
         "You are signed out of iCloud. Notes will not sync until you sign in.",
@@ -597,6 +641,38 @@ fn states(shell: &Rc<Shell>) -> gtk::Box {
         gtk::Separator::new(gtk::Orientation::Vertical).upcast_ref(),
         list.upcast_ref(),
     ]));
+
+    // Photos' toasts: two that can be acted on, then a plain one. None of them takes another's place, and each goes
+    // after its own time.
+    let toasts = gtk::Button::with_label("Delete, download and copy");
+    toasts.set_halign(gtk::Align::Start);
+    toasts.set_margin_start(28);
+    let show = Rc::new({
+        let shell = Rc::downgrade(shell);
+        move || {
+            let Some(shell) = shell.upgrade() else { return };
+            let gone = |what: &'static str| move || trace(&format!("toast: {what} dismissed"));
+            shell.add_toast(
+                Toast::new("Moved harbour.jpg to Recently Deleted")
+                    .seconds(10)
+                    .action("Undo", || trace("toast: undo"))
+                    .on_dismissed(gone("deleted")),
+            );
+            shell.add_toast(
+                Toast::new("Saved pier.jpg to Downloads")
+                    .seconds(6)
+                    .action("Show", || trace("toast: show"))
+                    .on_dismissed(gone("saved")),
+            );
+            shell.add_toast(Toast::new("Copied").seconds(4).on_dismissed(gone("copied")));
+        }
+    });
+    toasts.connect_clicked({
+        let show = show.clone();
+        move |_| show()
+    });
+    openers.push(("toasts", "states", show));
+    column.append(&toasts);
     column
 }
 
@@ -810,12 +886,58 @@ fn dialogs(app: &gtk::Application, openers: &mut Openers) -> gtk::ScrolledWindow
             }
         }),
     );
+    // Contacts' question before mirroring: its text is the app's own widget, and wraps at the width a dialog has
+    // when the app sets none.
+    let alert = opener(
+        "alert",
+        "Mirror contacts…",
+        Rc::new({
+            let said = said.clone();
+            move |button| {
+                let dialog = Dialog::new(Some("Mirror your contacts?"), None);
+                let text = gtk::Box::new(gtk::Orientation::Vertical, 8);
+                text.append(&omui::label(
+                    "Every contact in iCloud is copied to Google and every contact in Google to iCloud, and from \
+                     then on a change in either is made in the other.",
+                    "",
+                ));
+                text.append(&omui::label(
+                    "12 contacts look like the same person in both. You choose for each before anything is copied.",
+                    "dim-label",
+                ));
+                dialog.set_extra_child(Some(text.upcast_ref()));
+                dialog.add_response("cancel", "_Cancel");
+                dialog.add_response("review", "_Review");
+                dialog.set_response_appearance("review", Appearance::Suggested);
+                dialog.set_default_response("review");
+                dialog.set_close_response("cancel");
+                dialog.connect_response({
+                    let said = said.clone();
+                    move |_, id| said(id)
+                });
+                dialog.present(button);
+            }
+        }),
+    );
+    let about = opener(
+        "about",
+        "About…",
+        Rc::new(|button| {
+            omui::about(
+                button,
+                "omui gallery",
+                env!("CARGO_PKG_VERSION"),
+                "Every widget of omui in one window.\n\nBy Ferdous Bhai. MIT License.",
+                Some("https://github.com/ferdousbhai/omui"),
+            )
+        }),
+    );
     openers.push(("stop", "dialogs", {
         let button = uploading.clone().downcast::<gtk::Button>().expect("a button");
         Rc::new(move || upload(&button).emit_clicked())
     }));
     column.append(&row(&[&confirm, &send, &rename, &uploading]));
-    column.append(&row(&[&tall, &window]));
+    column.append(&row(&[&tall, &alert, &about, &window]));
     column.append(&answer);
     scroll
 }
@@ -1150,15 +1272,23 @@ fn contacts(shell: &Rc<Shell>, openers: &mut Openers) -> gtk::Box {
         .build();
     sidebar.append(&gtk::SearchEntry::builder().placeholder_text("Search contacts").build());
     sidebar.append(&gtk::ScrolledWindow::builder().child(&list).vexpand(true).build());
+    // A switch whose title wraps in a narrow window: the window keeps the width of its tile.
+    let mirror = Group::new("", "");
+    mirror.add(
+        &omui::switch_row("Mirror contacts between iCloud and Google", "Off", false)
+            .0
+            .widget,
+    );
+    sidebar.append(&mirror.widget);
 
     let back = omui::icon_button(name::BACK, "Contacts");
     let edit = omui::icon_button(name::EDIT, "Edit");
     let delete = omui::icon_button(name::DELETE, "Delete");
-    let bar = gtk::Box::builder().css_classes(["toolbar"]).build();
-    bar.append(&back);
-    bar.append(&gtk::Box::builder().hexpand(true).build());
-    bar.append(&edit);
-    bar.append(&delete);
+    // A header bar with buttons and no title: the window's title is the sidebar's to show.
+    let bar = omui::header_without_title();
+    bar.pack_start(&back);
+    bar.pack_end(&delete);
+    bar.pack_end(&edit);
     let card = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .css_classes(["card"])
@@ -1358,6 +1488,15 @@ fn setup(openers: &mut Openers) -> gtk::Stack {
     openers.push(("recovery", "nav", {
         let stack = nav.widget.clone();
         Rc::new(move || recovery_code(&stack))
+    }));
+    // A page pushed by an action (a menu, an accelerator), so the keyboard stays where it was.
+    openers.push(("push", "nav", {
+        let nav = nav.downgrade();
+        Rc::new(move || {
+            if let Some(nav) = nav.upgrade() {
+                nav.push("advanced", &advanced_page(&nav));
+            }
+        })
     }));
     nav.widget
 }
@@ -1659,13 +1798,12 @@ fn rows(shell: &Rc<Shell>, openers: &mut Openers) -> gtk::ScrolledWindow {
         group.add(&omui::switch_row("Sync on metered connections", "", false).0.widget);
         column.append(&group.widget);
         let about = Group::new("About", "");
-        about.add(&Row::new("Version", "0.3.0").property().widget);
+        about.add(&Row::new("Version", env!("CARGO_PKG_VERSION")).property().widget);
         column.append(&about.widget);
         dialog.set_extra_child(Some(page.upcast_ref()));
         dialog.set_content_size(460, 300);
-        dialog.add_response("done", "Done");
-        dialog.set_default_response("done");
-        dialog.set_close_response("done");
+        // Settings take effect as they change: there is nothing to answer, only the dialog to close.
+        dialog.set_close_button(true);
         dialog.present(parent);
     };
     settings.connect_clicked(open_settings);

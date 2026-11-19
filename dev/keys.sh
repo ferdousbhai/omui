@@ -15,7 +15,8 @@ failed=0
 
 # check <what OMUI_GALLERY_OPEN opens, page:<a page> to start with the keyboard in that page, or start> <keys>
 #       <the lines expected, joined by |>
-# SIZE=<width>x<height> before it makes the window that size.
+# SIZE=<width>x<height> before it makes the window that size; TRACE=<kinds> compares those lines of the trace in place
+# of the focus, answers, shortcuts, splits and pages.
 check() {
   local got target=(OMUI_GALLERY_OPEN="$1")
   [[ $1 != page:* ]] || target=(OMUI_GALLERY_PAGE="${1#page:}")
@@ -24,7 +25,7 @@ check() {
     OMUI_PREVIEW_KEYS="$2" OMUI_PREVIEW_LOG="$scratch/log" \
     "$here/preview.sh" "$scratch/shot.png" >/dev/null 2>"$scratch/errors" || { cat "$scratch/errors" >&2; exit 1; }
   # GTK reports no focus for an instant as Tab goes round from the last widget to the first.
-  got=$(grep -E '^(focus|answer|split|nav): ' "$scratch/log" | grep -vx 'focus: nothing' | paste -sd'|')
+  got=$(grep -E "^(${TRACE:-focus|answer|shortcut|split|nav}): " "$scratch/log" | grep -vx 'focus: nothing' | paste -sd'|')
   if [[ $got == "$3" ]]; then
     echo "ok    $1${SIZE:+ at $SIZE} [$2]"
   else
@@ -37,9 +38,11 @@ check() {
 
 # Tab and Shift+Tab go round inside the dialog; Escape closes it, answers nothing, and the focus returns.
 check confirm 'Tab Tab shift+ISO_Left_Tab shift+ISO_Left_Tab Escape' \
-  'focus: row|focus: Cancel|focus: Discard|focus: Cancel|focus: Discard|focus: Cancel|focus: row'
+  'focus: row|focus: _Cancel|focus: Discard|focus: _Cancel|focus: Discard|focus: _Cancel|focus: row'
 # Enter gives the default response: Cancel when the action is destructive, the action when it is not.
-check confirm 'Return' 'focus: row|focus: Cancel|focus: row'
+check confirm 'Return' 'focus: row|focus: _Cancel|focus: row'
+# Alt+C cancels.
+check confirm 'alt+c' 'focus: row|focus: _Cancel|focus: row'
 check send 'Return' 'focus: row|focus: _Send|focus: row|answer: sent'
 # A mnemonic is the dialog's own: Alt+D does not press "Discard a draft…" on the page under it, and Alt+S sends.
 check send 'alt+d alt+s' 'focus: row|focus: _Send|focus: row|answer: sent'
@@ -48,9 +51,13 @@ check rename 'Return' 'focus: row|focus: text|focus: row|answer: rename: Receipt
 # A disabled response is given neither by Enter nor by Tab, and Escape gives the close response.
 check rename 'BackSpace Return Tab Tab Escape' \
   'focus: row|focus: text|focus: Cancel|focus: text|focus: row|answer: cancel: '
+# The window's shortcuts and the application's accelerators do nothing while a dialog is open, and act again once it
+# has closed: Delete would otherwise ask a second time, Ctrl+U and F5 act behind the question.
+check start 'Delete Delete ctrl+u F5 Escape F5' \
+  'focus: row|shortcut: delete|focus: _Cancel|focus: row|shortcut: refresh'
 # A dialog that cannot be closed ignores Escape. A dialog over it takes the keyboard, and gives it back.
 check upload 'Escape Tab Return Tab Return' \
-  'focus: row|focus: Stop|focus: Stop|focus: Cancel|focus: Stop|focus: Stop|focus: row'
+  'focus: row|focus: Stop|focus: Stop|focus: _Cancel|focus: Stop|focus: Stop|focus: row'
 # In a dialog taller than the window the focus starts in the list that scrolls.
 check tall 'Escape' 'focus: row|focus: checkbutton Calendar 1|focus: row|answer: done'
 # A window without a shell gets a modal window, with the same keys. The gallery is tiled beside the editor window,
@@ -87,13 +94,18 @@ check page:tabs 'Tab Return Tab Tab Tab' \
 # the row.
 check page:nav 'Return Escape Tab Return alt+Left' \
   'focus: row|focus: row Create an account|focus: Back|nav: create|focus: row Create an account|nav: root|focus: row Join an account|focus: Back|nav: join|focus: row Join an account|nav: root'
+# A page pushed by an action leaves the keyboard on the sidebar, and Escape still goes back.
+check push 'Escape' 'focus: row|nav: advanced|nav: root'
 # Two deep, and back to the root in one step.
 check page:nav 'Return Tab Tab Tab Tab Tab Tab Tab Return Tab Return' \
   'focus: row|focus: row Create an account|focus: Back|nav: create|focus: button Cloudflare R2|focus: text Cloudflare account ID|focus: text Access key ID|focus: text Secret access key|focus: Show the text|focus: row Lost every computer?|focus: row Advanced|focus: switch Sync settings too|nav: advanced|focus: Start over|focus: row Create an account|nav: root'
 
+# The gallery's sidebar is one Tab stop, so Tab does not show each page it passes: on to its footer, then the page.
+check start 'Tab Tab shift+ISO_Left_Tab shift+ISO_Left_Tab Down' \
+  'focus: row|focus: button Connected|focus: Default|focus: button Connected|focus: row|focus: row'
 # A split wide enough for both panes: Tab goes through the sidebar and on into the content.
-check page:split 'Tab Down Return Tab Tab Tab Tab Tab' \
-  'focus: row|focus: text Search contacts|focus: row Ada Lovelace|focus: row Grace Hopper|split: contacts wide both|focus: row Katherine Johnson|focus: row Linus|focus: row Margaret Hamilton|focus: row No name|focus: Edit'
+check page:split 'Tab Down Return Tab Tab Tab Tab Tab Tab' \
+  'focus: row|focus: text Search contacts|focus: row Ada Lovelace|focus: row Grace Hopper|split: contacts wide both|focus: row Katherine Johnson|focus: row Linus|focus: row Margaret Hamilton|focus: row No name|focus: switch Mirror contacts between iCloud and Google|focus: Edit'
 # The sidebar put away and brought back from its button in the header bar.
 check start 'shift+ISO_Left_Tab shift+ISO_Left_Tab shift+ISO_Left_Tab shift+ISO_Left_Tab shift+ISO_Left_Tab Return Return' \
   'focus: row|focus: button|focus: New|focus: Search|focus: Back|focus: Sidebar|split: window wide content|split: window wide both'
@@ -104,4 +116,6 @@ SIZE=480x820 check page:split 'Tab Down Return Tab Tab Tab Escape Return alt+Lef
 # A sidebar that is put away: the window opens on it, and Enter on a row shows that row's page.
 SIZE=480x820 check start 'Down Return' \
   'focus: row|split: window collapsed sidebar|focus: row|focus: flowboxchild plus|split: window collapsed content'
+# A window as narrow as its tile keeps that width, with a switch whose title wraps in the split's sidebar.
+TRACE=width SIZE=360x820 check page:split '' 'width: 360'
 exit "$failed"

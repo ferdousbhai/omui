@@ -700,6 +700,8 @@ row.expander-row > box > revealer > list > row:last-child { border-bottom: none;
   padding: 6px 8px 6px 12px;
 }
 
+/* The toasts on screen, one over another at the bottom of the window (shell.rs). */
+.toasts { border-spacing: 8px; margin: 18px; }
 .toast {
   background: @om_muted;
   border: 1px solid alpha(@om_border, 0.8);
@@ -707,7 +709,6 @@ row.expander-row > box > revealer > list > row:last-child { border-bottom: none;
   border-spacing: 6px;
   box-shadow: 0 4px 14px alpha(black, 0.3);
   color: @om_text;
-  margin: 18px;
   padding: 4px 4px 4px 12px;
 }
 
@@ -726,12 +727,15 @@ row.expander-row > box > revealer > list > row:last-child { border-bottom: none;
   margin: 24px;
 }
 /* In a window of its own, the window is the card. */
-window > .dialog { border: none; border-radius: 0; box-shadow: none; margin: 0; }
+window > box > .dialog { border: none; border-radius: 0; box-shadow: none; margin: 0; }
 .dialog-heading { font-size: 1.15em; font-weight: 700; padding: 18px 20px 0; }
 .dialog-body { color: @om_dim_text; padding: 6px 20px 0; }
 .dialog-body:first-child { padding-top: 18px; }
 .dialog-extra { padding: 14px 20px 0; }
 .dialog-heading:last-child, .dialog-body:last-child, .dialog-extra:last-child { padding-bottom: 18px; }
+/* The heading beside the close button, which sits in the card's corner. */
+.dialog-close { margin: 10px 10px 0 0; }
+.dialog-header:last-child { padding-bottom: 18px; }
 /* With no heading and no body the app's widget is the whole dialog, to its edges. */
 .dialog-extra:first-child { padding: 0; }
 .dialog-actions {

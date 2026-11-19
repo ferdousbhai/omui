@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! The small widgets every app builds the same way.
 
-use gtk::prelude::*;
+use gtk::{gdk, glib, prelude::*};
 
 use crate::icons;
 
@@ -72,6 +72,42 @@ pub fn sidebar_row(id: &str, icon: Option<&str>, text: &str, count: Option<&str>
     let name = count.map_or_else(|| text.to_owned(), |count| format!("{text}, {count}"));
     row.update_property(&[gtk::accessible::Property::Label(&name)]);
     row
+}
+
+/// Makes `list` one stop for Tab, as a sidebar is: Tab and Shift+Tab pass it in one step, to the widget after it or
+/// before it, and the arrows move from row to row inside. Coming in, the keyboard lands on the selected row. A list
+/// box would otherwise walk Tab through every row, and a selection that follows the keyboard (a sidebar of
+/// [`sidebar_row`]s) would load each page on the way.
+pub fn single_tab_stop(list: &impl IsA<gtk::Widget>) {
+    let keys = gtk::EventControllerKey::new();
+    // Ahead of the row, which would take Tab to the next one.
+    keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+    keys.connect_key_pressed(|keys, key, _, modifiers| {
+        if modifiers.intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::ALT_MASK) {
+            return glib::Propagation::Proceed;
+        }
+        let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
+        let direction = match key {
+            gdk::Key::ISO_Left_Tab => gtk::DirectionType::TabBackward,
+            gdk::Key::Tab | gdk::Key::KP_Tab if shift => gtk::DirectionType::TabBackward,
+            gdk::Key::Tab | gdk::Key::KP_Tab => gtk::DirectionType::TabForward,
+            _ => return glib::Propagation::Proceed,
+        };
+        let Some((list, root)) = keys.widget().and_then(|list| Some((list.clone(), list.root()?))) else {
+            return glib::Propagation::Proceed;
+        };
+        // Unable to take the focus for the move, the list is passed over as a whole: GTK moves on from the row that
+        // has it to whatever follows the list, as it would from the list's last row.
+        list.set_can_focus(false);
+        if !root.child_focus(direction) {
+            // Off either end: round to the other, as the window's own Tab does.
+            root.set_focus(gtk::Widget::NONE);
+            root.child_focus(direction);
+        }
+        list.set_can_focus(true);
+        glib::Propagation::Stop
+    });
+    list.add_controller(keys);
 }
 
 /// A small tinted label: a count, a state. `class` picks the tint (`error`, `warning`, `success`; accent when empty).

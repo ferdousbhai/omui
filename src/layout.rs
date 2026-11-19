@@ -261,12 +261,16 @@ mod imp {
                 return (0, 0, -1, -1);
             };
             if orientation == gtk::Orientation::Vertical {
-                // As tall as the taller pane on screen, at the width it has.
+                // As tall as the taller pane on screen: naturally, at the width it gets; at the least, what it needs
+                // at no width in particular, and so the same at every width. GTK gives a window whose least height
+                // grows as it narrows a least width in proportion, from the size it had before it was tiled: wrapping
+                // text in a pane made a window wider than its tile.
                 let mut tallest = (0, 0);
                 let width = if for_size < 0 { widget.width() } else { for_size };
                 for (pane, _, pane_width) in self.places(&sidebar, &content, width) {
-                    let (minimum, natural, ..) = pane.measure(orientation, if for_size < 0 { -1 } else { pane_width });
-                    tallest = (tallest.0.max(minimum), tallest.1.max(natural));
+                    let minimum = pane.measure(orientation, -1).0;
+                    let natural = pane.measure(orientation, if for_size < 0 { -1 } else { pane_width }).1;
+                    tallest = (tallest.0.max(minimum), tallest.1.max(natural.max(minimum)));
                 }
                 return (tallest.0, tallest.1, -1, -1);
             }
@@ -601,9 +605,11 @@ impl Split {
     }
 }
 
-/// Pages one over another, the last pushed on top (`adw::NavigationView`). Escape and Alt+Left go back a page; a
-/// page's own back button is the app's, built with [`crate::icon_button`] and calling [`Nav::pop`]. The keyboard
-/// goes with the page shown, and comes back to where it was on the page under it: the stack sees to that.
+/// Pages one over another, the last pushed on top (`adw::NavigationView`). Escape and Alt+Left go back a page,
+/// wherever the keyboard is in the window while the pages are on screen and no dialog is open: a page pushed from a
+/// menu or an accelerator leaves the keyboard where it was. A page's own back button is the app's, built with
+/// [`crate::icon_button`] and calling [`Nav::pop`]. The keyboard goes with the page shown, and comes back to where
+/// it was on the page under it: the stack sees to that.
 ///
 /// This is a handle: the widget is the stack of pages and works without it. A handler on a widget in one of the
 /// pages holds a [`WeakNav`], or the two would keep each other alive.
@@ -634,18 +640,39 @@ impl Nav {
             changed: RefCell::default(),
         });
         widget.add_child(&state.root);
-        let keys = gtk::EventControllerKey::new();
-        keys.connect_key_pressed({
+        let back = {
             let state = state.clone();
-            move |_, key, _, modifiers| match Nav::of(&state) {
-                Some(nav) if is_back(key, modifiers) && nav.visible_tag().is_some() => {
+            move || match Nav::of(&state) {
+                Some(nav) if nav.visible_tag().is_some() => {
                     nav.pop();
                     glib::Propagation::Stop
                 }
                 _ => glib::Propagation::Proceed,
             }
+        };
+        // With the keyboard inside, ahead of whatever holds the pages: a split around them goes back only once they
+        // are at their root.
+        let keys = gtk::EventControllerKey::new();
+        keys.connect_key_pressed({
+            let back = back.clone();
+            move |_, key, _, modifiers| {
+                if is_back(key, modifiers) {
+                    back()
+                } else {
+                    glib::Propagation::Proceed
+                }
+            }
         });
         widget.add_controller(keys);
+        // With the keyboard anywhere else in the window: GTK runs a managed shortcut from the window while its widget
+        // is on screen, and a dialog over the window holds it back.
+        let anywhere = gtk::ShortcutController::new();
+        anywhere.set_scope(gtk::ShortcutScope::Managed);
+        anywhere.add_shortcut(gtk::Shortcut::new(
+            gtk::ShortcutTrigger::parse_string("Escape|<Alt>Left|<Alt>KP_Left"),
+            Some(gtk::CallbackAction::new(move |_, _| back())),
+        ));
+        widget.add_controller(anywhere);
         Self { widget, state }
     }
 

@@ -11,7 +11,7 @@ theming approach it follows.
 
 ```toml
 [dependencies]
-omui = { git = "https://github.com/ferdousbhai/omui", rev = "<40-hex>" } # v0.3.0
+omui = { git = "https://github.com/ferdousbhai/omui", rev = "<40-hex>" } # v0.4.0
 ```
 
 Building needs `glib-compile-resources` (on Arch it is part of `glib2`).
@@ -43,19 +43,20 @@ A packaged app carries the Strata and Lucide notices with it, since its binary h
 the Lucide icons: ship [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)'s two entries and the texts under
 `data/licenses/` among the app's own notices.
 
-## What is in 0.3
+## What is in 0.4
 
 | | |
 |---|---|
 | `application`, `main`, `background` | One-window application with the theme installed; a binary that is a window with no arguments and a command line with some; work on a thread with the result on the main loop |
 | `Theme`, `Tokens`, `blend`, `omarchy_state_dir` | The installed look, its colours, and a listener for what CSS cannot reach |
 | `icons::name::*`, `icon`, `icon_button`, `data_uri` | 67 bundled Lucide icons as GTK symbolic icons |
-| `Shell`, `header`, `Title`, `claim_titlebar` | The window's overlay with toasts, and its header bar |
-| `Dialog`, `WeakDialog`, `confirm`, `Appearance` | A dialog drawn inside its window, and the question most of them are |
+| `icon_menu_button` | A menu button drawn as an icon button: a header bar's main menu |
+| `Shell`, `Toast`, `header`, `header_without_title`, `Title`, `claim_titlebar` | The window's overlay with toasts, and its header bar |
+| `Dialog`, `WeakDialog`, `confirm`, `about`, `dialog_open`, `Appearance` | A dialog drawn inside its window, the question most of them are, an About dialog, and whether one is open |
 | `Split`, `Nav`, `tabs`, `on_narrow` | A sidebar beside content that becomes one pane in a narrow window; pages pushed one over another; the pages of a stack as tabs; a widget's width crossing a threshold |
 | `clamp`, `page` | A child kept to a readable width; a scrolling column of groups |
 | `Group`, `Row`, `entry_row`, `password_row`, `switch_row`, `combo_row`, `ExpanderRow` | A titled, bordered list and the rows of a settings page or a form |
-| `label`, `badge`, `avatar`, `spinner`, `sidebar_row`, `clear`, `set_class` | Small builders |
+| `label`, `badge`, `avatar`, `spinner`, `sidebar_row`, `single_tab_stop`, `clear`, `set_class` | Small builders; a list that Tab passes in one step |
 | `Banner`, `EmptyState` | A message bar; what an empty page or list shows |
 | `dev::shot` (feature `dev`) | A widget written to a PNG, for before-and-after pictures |
 
@@ -81,6 +82,19 @@ a reset, GTK's built-in theme, `omui.css`, the app's CSS, then the tokens. The r
 omui and libadwaita cannot share a process. A widget `omui.css` has no rule for keeps the built-in theme's look, dark
 or light as the palette is.
 
+## Toasts
+
+```rust
+shell.toast("Copied");
+shell.add_toast(omui::Toast::new("Moved to Recently Deleted").seconds(10)
+    .action("Undo", move || restore()).on_dismissed(move || forget_undo()));
+```
+
+Toasts stack at the bottom of the window, newest lowest. A toast without a button takes the place of another without
+one; a toast with a button stays for as long as it said, whatever comes after it. `on_dismissed` runs once a toast
+has gone, however it went: its time ran out, it was closed, a later toast replaced it, or its button was pressed
+(after the button's action). A toast lasts five seconds unless `seconds` says otherwise.
+
 ## Dialogs
 
 ```rust
@@ -92,9 +106,19 @@ omui::confirm(&button, "Discard this draft?", "It cannot be brought back.", "Dis
 (`set_extra_child`, `set_content_size`), and responses (`add_response`, `set_response_appearance`,
 `set_response_enabled`, `set_default_response`, `set_close_response`, `connect_response`). It is drawn over the
 window's content, on the `Shell` overlay, because a second window would be tiled beside the first. While it is open
-the content and the title bar take neither keys nor the pointer. Tab stays inside it, Escape gives the close response,
-and Enter the default one: from an entry too, when the entry has `set_activates_default(true)`. `set_can_close(false)`
-makes Escape do nothing until `force_close`. A window that has no `Shell` gets a modal window instead.
+the content and the title bar take neither keys nor the pointer, and the window's shortcuts (a `gtk::ShortcutController`
+in managed or global scope anywhere under the dialog, or any on the window) and the application's accelerators do
+nothing; they act again once the last dialog has closed. `omui::dialog_open(&widget)` and `Shell::dialog_open` say
+whether one is open, for whatever else an app starts from outside the window. Tab stays inside it, Escape gives the
+close response, and Enter the default one: from an entry too, when the entry has `set_activates_default(true)`.
+`set_can_close(false)` makes Escape do nothing until `force_close`. A window that has no `Shell` gets a modal window
+instead.
+
+A dialog with a heading or a body is 420 pixels wide, margins included, so its text wraps at a readable width; it is
+narrower in a narrower window. `set_content_size` with a width sizes it by the app's widget instead, and a dialog with
+neither heading nor body is as wide as its widget. `set_close_button(true)` puts a close button beside the heading, as
+a preferences or About dialog has; `omui::about(&parent, name, version, text, Some(website))` is such a dialog.
+`confirm`'s Cancel is Alt+C.
 
 `set_content_size` is the size the app's widget has where there is room, as libadwaita's content size is. In a
 narrower window the widget is narrower; in one too low for the dialog it scrolls, and the heading and the responses
@@ -123,14 +147,16 @@ using one:
 
 The keyboard goes with the pane that is shown, and comes back to where it was. Tab starts in the sidebar.
 
-`Nav` is a `gtk::Stack` with `push`, `pop` and `pop_to_root`; Escape and Alt+Left pop. `tabs(&stack)` is a row of
+`Nav` is a `gtk::Stack` with `push`, `pop` and `pop_to_root`; Escape and Alt+Left pop, wherever the keyboard is in
+the window while a pushed page is on screen and no dialog is open. `tabs(&stack)` is a row of
 tabs for a stack's pages, for a header bar; in a window under 700 pixels a tab with an icon shows the icon alone.
 `on_narrow(&widget, 640, |narrow| …)` is for whatever else changes with the width.
 
 A `Split` and a `Nav` are handles: the widget does the work, and goes on doing it when the handle is dropped. A
 handler on a widget inside one holds it weakly (`#[weak]` in `glib::clone!`, or `downgrade()`). A split can only
 collapse if the window can get that narrow, so content that will not shrink (a wide row of buttons outside a
-scrolled window) keeps it wide.
+scrolled window) keeps it wide. A split's least height is the same at every width, what its panes need with their text
+on one line, so wrapping text in a pane does not make GTK give a narrow window a least width wider than its tile.
 
 ## Groups and rows
 
@@ -182,8 +208,8 @@ GTK and Adwaita names are kept where one exists.
 - Text: `dim-label` `title-1` `title-2` `title-4` `heading` `caption` `numeric` `monospace` `error` `warning`
   `success` `accent` `page-title` `section-title` `meta` `status-line`
 - Containers: `sidebar` `sidebar-row` `sidebar-footer` `toolbar` `result` `result-title` `snippet` `badge`
-  `empty-state` `compact` `banner` `toast` `om-shell` `search-large` `dialog` `dialog-backdrop` `dialog-heading`
-  `dialog-body` `dialog-extra` `dialog-actions` `om-split` `collapsed` `page` `tabs` `narrow` `group` `group-title`
+  `empty-state` `compact` `banner` `toasts` `toast` `om-shell` `search-large` `dialog` `dialog-backdrop`
+  `dialog-header` `dialog-heading` `dialog-close` `dialog-body` `dialog-extra` `dialog-actions` `om-split` `collapsed` `page` `tabs` `narrow` `group` `group-title`
   `group-description` `boxed-list` `om-row` `row-title` `row-subtitle` `property` `entry-row` `expander-row`
   `expanded` `avatar`
 
@@ -196,12 +222,23 @@ Three of them mean something narrower than the same name in an app's old stylesh
 - Every list row gets omui's hover and selection tint. Padding belongs to the row's kind (`sidebar-row`, `result`),
   so a plain row keeps GTK's.
 
+A sidebar list of `sidebar_row`s is one Tab stop with `omui::single_tab_stop(&list)`: Tab passes it in one step and
+the arrows move inside it, so a selection that follows the keyboard does not load each page Tab goes by.
+
 ## Working on it
 
 ```sh
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
+```
+
+The tests that need GTK running (sizes, toasts, what a dialog holds back) run only on a broadway display, so that
+they neither show anything nor read the settings of the desktop they are run from:
+
+```sh
+rt=$(mktemp -d /tmp/omb.XXXXXX); XDG_RUNTIME_DIR=$rt gtk4-broadwayd :77 &
+XDG_RUNTIME_DIR=$rt GDK_BACKEND=broadway BROADWAY_DISPLAY=:77 cargo test --all-features
 ```
 
 `examples/gallery.rs` shows every widget. `dev/preview.sh` runs it in a nested Hyprland with a private home and
@@ -221,8 +258,9 @@ opens one of the gallery's dialogs, its drop-down or a menu for the picture; `ex
 last is a narrow window, where the splits show one pane and the tabs their icons.
 
 `dev/keys.sh` walks the gallery with the keyboard alone, in the same nested desktop: Tab, Enter, Escape, Alt+Left and
-mnemonics in its dialogs, rows, tabs, pages and splits, wide and narrow. It checks where the focus went, what was
-answered, and how each split and stack of pages changed. It needs `wtype`.
+mnemonics in its dialogs, rows, tabs, pages and splits, wide and narrow, and the window's shortcuts under a dialog. It
+checks where the focus went, what was answered, which shortcuts acted, how each split and stack of pages changed, and
+that a narrow window keeps its width. It needs `wtype`.
 
 The icons under `data/icons` are generated from Lucide by `dev/outline` and committed; its source says how to run it.
 
