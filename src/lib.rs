@@ -50,6 +50,10 @@ pub fn application(
     glib::set_application_name(title);
     let app = gtk::Application::builder().application_id(id).build();
     app.connect_startup(move |_| {
+        #[cfg(feature = "qa")]
+        if qa {
+            qa::require_hidden_display();
+        }
         if let Some(display) = gdk::Display::default() {
             Theme::install(&display, app_css);
             // A selectable label (a fingerprint, a status line) is often the first focus stop; GTK would select all of

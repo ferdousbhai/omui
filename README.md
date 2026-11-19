@@ -306,9 +306,11 @@ The icons under `data/icons` are generated from Lucide by `dev/outline` and comm
 
 An app built with feature `qa` and run with `OMUI_QA=1` takes commands on stdin, one JSON object a line, and answers
 each on stdout, in order: `{"do": …, "ok": true, …}`, or `"ok": false` with an `error`. The first failure ends the
-run, and the exit status is 1. Any GLib warning or critical fails the command it came in (`logged`), even one logged
-as the windows close after `quit`; only GTK's complaint that there is no accessibility bus is let pass. `omui::application`
-starts it, so an app needs nothing but the feature, which a release build leaves off: it brings `serde_json`.
+run, and the exit status is 1; so does a script that ends without `quit`, and a panic ends it at once with 101. Any
+GLib warning or critical fails the command it came in (`logged`), even one logged as the windows close after `quit`.
+Two are let pass: GTK's complaint that there is no accessibility bus, and broadway's one warning of a duplicate frame
+timing (below). `omui::application` starts it, so an app needs nothing but the feature, which a release build leaves
+off: it brings `serde_json`. It runs on a broadway display alone, and exits with 2 on any other.
 
 ```sh
 cargo build --example gallery --features qa
@@ -322,13 +324,13 @@ comments. `dev/qa/critical.jsonl` must fail: it has the gallery make GTK log a c
 A widget is named by its accessible `role` (GTK's nick: `button`, `toggle-button`, `checkbox`, `switch`, `text-box`,
 `search-box`, `list-item`, `dialog`, `alert`, `separator`, …) and `name`, and optionally `in` an ancestor named the
 same way: `{"role": "dialog", "name": "Rename the folder"}`. Its name is its accessible label, its label, title or
-placeholder, its tooltip, or for a button, row, group, dialog or toast any label inside it. Of several, the innermost
-on screen is meant; more than one is an error. A command that acts waits up to `timeout_ms` (5000) for its widget to
+placeholder, its tooltip, or for a button, row, group, dialog or toast any label inside it. It is looked for in every
+window, a dialog's own modal window too (over a window with no `Shell`). Of several, the innermost on screen is meant; more than one is an error. A command that acts waits up to `timeout_ms` (5000) for its widget to
 be on screen, and every command waits for the window to be drawn after the last.
 
 | Command | Does | Answers |
 |---|---|---|
-| `{"do":"click", role, name}` | Clicks a button, or activates a row, switch or other widget as Enter would; fails on one that is hidden, disabled or under a dialog | |
+| `{"do":"click", role, name}` | Clicks a button, or activates a row, switch or other widget as Enter would; fails on one that is hidden, disabled or under a dialog, in its window or a modal window | |
 | `{"do":"focus", role, name}` | Gives it the keyboard | |
 | `{"do":"type", "text":"…"}` | Types the text as key presses, into the widget named if one is | |
 | `{"do":"key", "keys":"<Control>u"}` | Presses a key with its modifiers (GTK accelerator syntax), as a keyboard would | |
@@ -336,17 +338,17 @@ be on screen, and every command waits for the window to be drawn after the last.
 | `{"do":"set", role, name, "checked":true}` | Sets a switch, check box or toggle button | |
 | `{"do":"select", role, name}` | Selects a list row | |
 | `{"do":"query", role, name}` | | `role` `name` `visible` `sensitive` `focused` `text` `checked` `selected` (rows) `width` `height` |
-| `{"do":"state"}` | | `size` of the window, the `dialog` on top (its name, or null), the `toasts` showing, the `focus` |
+| `{"do":"state"}` | | `size` of the app's window; of all windows the `dialog` on top (its name, or null), the `toasts` showing, the `focus` in the window that has the keyboard |
 | `{"do":"wait", …}` | Waits until each other key equals what `query` (with a role or name) or `state` answers, or a widget is on screen; one that is not there is `"visible": false` | The last answer |
 | `{"do":"resize", "width":560, "height":700}` | Sets the window's size | |
 | `{"do":"shot", "path":"x.png"}` | Writes the window to a PNG through `dev::shot` | |
 | `{"do":"list", role}` | | The `widgets` on screen with a name, as `{role, name}`: for writing a script |
-| `{"do":"quit"}` | Closes the windows and ends the run; so does the end of stdin | |
+| `{"do":"quit"}` | Closes the windows and ends the run; a script must end with it | |
 
 Keys reach the app through the broadway display's input, as its web page sends them, so they go through GTK's own
 handling: shortcuts, mnemonics, a dialog holding the window's keys back. `dev/qa.sh` sets `OMUI_QA_INPUT` to it.
-GDK's broadway backend warns once of a duplicate frame timing when a page answers its frames, as this one does; that
-warning is let pass while the page is connected.
+GDK's broadway backend warns once a run of a duplicate frame timing (`gdk_frame_timings_submitted()`, domain Gdk)
+when a page answers its frames, as this one does; that warning is let pass while the page is connected.
 
 ## License
 

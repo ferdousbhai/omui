@@ -30,11 +30,15 @@ const NO_A11Y_BUS: &[&str] = &[
     "Unable to acquire the address of the accessibility bus",
 ];
 
-/// What GDK's broadway backend says when a page answers its frames, as the page that presses keys here does: it
-/// marks every frame still pending as presented and then as submitted, so a frame answered twice is counted twice
-/// (`_gdk_broadway_roundtrip_notify`, GTK 4.24). A browser showing the display gets it as well; the app is not at
-/// fault.
-const PAGE_FRAMES: &str = "Duplicate call to gdk_frame_timings_submitted() with different values.";
+/// What GDK's broadway backend says, once a run (`g_warning_once`), when a page answers its frames, as the page that
+/// presses keys here does: each answer marks the surface's pending frame submitted at 1/30 s
+/// (`_gdk_broadway_roundtrip_notify`, GTK 4.24), and a frame the clock had already finished with another interval
+/// draws this. A browser showing the display gets it as well; the app is not at fault. Broadway marks no frame
+/// presented, so `gdk_frame_timings_presented()`'s like warning cannot come from here, and is not let pass.
+const PAGE_FRAMES: (&str, &str) = (
+    "Gdk",
+    "Duplicate call to gdk_frame_timings_submitted() with different values.",
+);
 
 /// How long a command waits for its widget, or `wait` for its condition, unless it gives `timeout_ms`.
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -44,6 +48,12 @@ pub(crate) fn wanted() -> bool {
     let wanted = std::env::var_os("OMUI_QA").is_some_and(|value| value == "1");
     if wanted {
         glib::log_set_writer_func(record);
+        // A panic in a command would leave the main loop running with no answer, until the run timed out.
+        let report = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            report(info);
+            std::process::exit(101);
+        }));
         // Before the app has a window: broadway then has the page from the start, and never answers a frame itself.
         if let Ok(address) = std::env::var("OMUI_QA_INPUT") {
             INPUT.get_or_init(|| connect(&address));
@@ -68,12 +78,25 @@ fn record(level: glib::LogLevel, fields: &[glib::LogField<'_>]) -> glib::LogWrit
     };
     let message = field("MESSAGE");
     let known = NO_A11Y_BUS.iter().any(|known| message.starts_with(known))
-        || (message == PAGE_FRAMES && matches!(INPUT.get(), Some(Ok(_))));
+        || ((field("GLIB_DOMAIN"), message) == PAGE_FRAMES && matches!(INPUT.get(), Some(Ok(_))));
     if let Some(kind) = kind.filter(|_| !known) {
         let line = format!("{}-{kind}: {message}", field("GLIB_DOMAIN"));
         LOGGED.lock().unwrap_or_else(|e| e.into_inner()).push(line);
     }
     glib::log_writer_default(level, fields)
+}
+
+/// Ends the run unless the app is on a broadway display, as dev/qa.sh gives it, which no one sees: a script run on
+/// the desktop would click about in a window there. Called as the application starts, before it has a window.
+pub(crate) fn require_hidden_display() {
+    let display = gdk::Display::default().map(|display| display.type_().name());
+    if display != Some("GdkBroadwayDisplay") {
+        eprintln!(
+            "omui qa: OMUI_QA=1 runs on a broadway display alone (dev/qa.sh), not on {}",
+            display.unwrap_or("no display")
+        );
+        std::process::exit(2);
+    }
 }
 
 /// Starts reading commands, for the window `open` has just built.
@@ -90,7 +113,13 @@ pub(crate) fn start(app: &gtk::Application) {
     });
     glib::spawn_future_local(async move {
         let mut failed = false;
-        while let Some(line) = read_line().await {
+        loop {
+            let Some(line) = read_line().await else {
+                // A script cut short, or a pipe closed early, has not passed.
+                answer("quit", Err("the script ended without `quit`".to_owned()));
+                failed = true;
+                break;
+            };
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
                 continue;
@@ -225,8 +254,9 @@ impl Qa {
             "set" => {
                 let widget = self.wait_for(target.as_ref(), timeout).await?;
                 clickable(&widget)?;
-                let on = command["checked"]
-                    .as_bool()
+                let on = command
+                    .get("checked")
+                    .and_then(Value::as_bool)
                     .ok_or("`set` needs `checked`: true or false")?;
                 if let Some(switch) = widget.downcast_ref::<gtk::Switch>() {
                     switch.set_active(on);
@@ -253,8 +283,9 @@ impl Qa {
                 Ok(Map::new())
             }
             "key" => {
-                let keys = command["keys"]
-                    .as_str()
+                let keys = command
+                    .get("keys")
+                    .and_then(Value::as_str)
                     .ok_or("`key` needs `keys`, as \"<Control>u\"")?;
                 let (key, modifiers) = gtk::accelerator_parse(keys).ok_or_else(|| format!("no such key: {keys}"))?;
                 self.press(key, modifiers).await?;
@@ -266,7 +297,10 @@ impl Qa {
                     clickable(&widget)?;
                     widget.grab_focus();
                 }
-                let text = command["text"].as_str().ok_or("`type` needs `text`")?;
+                let text = command
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .ok_or("`type` needs `text`")?;
                 for c in text.chars() {
                     // SAFETY: GDK answers with a key symbol, one for any character.
                     let key = unsafe { from_glib(gdk::unicode_to_keyval(c.into())) };
@@ -275,8 +309,9 @@ impl Qa {
                 Ok(Map::new())
             }
             "action" => {
-                let name = command["name"]
-                    .as_str()
+                let name = command
+                    .get("name")
+                    .and_then(Value::as_str)
                     .ok_or("`action` needs `name`, as \"win.save\"")?;
                 let parameter = match command.get("parameter").and_then(Value::as_str) {
                     Some(text) => Some(glib::Variant::parse(None, text).map_err(|e| e.to_string())?),
@@ -290,20 +325,28 @@ impl Qa {
             "query" => {
                 let target = target.ok_or("`query` needs a role or a name")?;
                 let widget = target
-                    .find(&self.roots())?
+                    .find(&widgets(&self.roots()))?
                     .ok_or_else(|| format!("found no {target}"))?;
                 Ok(properties(&widget))
             }
             "state" => Ok(self.state()),
             "wait" => self.wait(target.as_ref(), command, timeout).await,
             "resize" => {
-                let size = |key: &str| command[key].as_i64().ok_or(format!("`resize` needs `{key}`"));
+                let size = |key: &str| {
+                    command
+                        .get(key)
+                        .and_then(Value::as_i64)
+                        .ok_or(format!("`resize` needs `{key}`"))
+                };
                 self.window
                     .set_default_size(size("width")? as i32, size("height")? as i32);
                 Ok(Map::new())
             }
             "shot" => {
-                let path = command["path"].as_str().ok_or("`shot` needs `path`")?;
+                let path = command
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .ok_or("`shot` needs `path`")?;
                 crate::dev::shot(&self.window, std::path::Path::new(path))?;
                 Ok(Map::new())
             }
@@ -311,7 +354,7 @@ impl Qa {
                 let target = target.unwrap_or_default();
                 let mut found = Vec::new();
                 for root in self.roots() {
-                    walk(&root, &mut |widget| {
+                    walk(root.upcast_ref(), &mut |widget| {
                         if widget.is_mapped() && target.matches(widget) && !names(widget).is_empty() {
                             found.push(json!({"role": role(widget), "name": name(widget)}));
                         }
@@ -324,9 +367,24 @@ impl Qa {
         }
     }
 
-    /// The app's windows, those on top first.
-    fn roots(&self) -> Vec<gtk::Widget> {
-        self.app.windows().into_iter().map(Cast::upcast).collect()
+    /// Every window, those on top first: the newest, and the one with the keyboard before all. Not only the app's:
+    /// a dialog over a window that has no `Shell` is a modal window of no application.
+    fn roots(&self) -> Vec<gtk::Window> {
+        let mut windows: Vec<_> = gtk::Window::list_toplevels()
+            .into_iter()
+            .rev()
+            .filter_map(|window| window.downcast::<gtk::Window>().ok())
+            .collect();
+        windows.sort_by_key(|window| !window.is_active());
+        windows
+    }
+
+    /// The window that has the keyboard, else the app's.
+    fn keyboard_window(&self) -> gtk::Window {
+        self.roots()
+            .into_iter()
+            .find(|window| window.is_active() && window.is_mapped())
+            .unwrap_or_else(|| self.window.clone())
     }
 
     /// The widget `target` names, once there is one on screen.
@@ -334,7 +392,7 @@ impl Qa {
         let target = target.ok_or("this command needs a role or a name")?;
         let start = Instant::now();
         loop {
-            match target.find(&self.roots()) {
+            match target.find(&widgets(&self.roots())) {
                 Ok(Some(widget)) if widget.is_mapped() => return Ok(widget),
                 Err(e) => return Err(e),
                 _ if start.elapsed() > timeout => return Err(format!("found no {target} on screen")),
@@ -349,11 +407,14 @@ impl Qa {
             .iter()
             .filter(|(key, _)| !["do", "role", "name", "in", "timeout_ms"].contains(&key.as_str()))
             .collect();
+        if target.is_none() && expected.is_empty() {
+            return Err("`wait` needs a role or a name, or what to wait for".to_owned());
+        }
         let start = Instant::now();
         loop {
             let now = match target {
                 // Not there is not on screen, for a wait until something has gone.
-                Some(target) => match target.find(&self.roots())? {
+                Some(target) => match target.find(&widgets(&self.roots()))? {
                     Some(widget) => properties(&widget),
                     None => Map::from_iter([("visible".to_owned(), false.into())]),
                 },
@@ -361,7 +422,7 @@ impl Qa {
             };
             // With nothing asked, the widget is waited for.
             let holds = if expected.is_empty() {
-                now["visible"] == true
+                now.get("visible") == Some(&Value::Bool(true))
             } else {
                 expected.iter().all(|(key, value)| now.get(*key) == Some(value))
             };
@@ -375,11 +436,12 @@ impl Qa {
         }
     }
 
-    /// The window: its size, the dialog on top, the toasts showing, and what has the keyboard.
+    /// The app's window's size, and of all the windows the dialog on top, the toasts showing, and what has the
+    /// keyboard.
     fn state(&self) -> Map<String, Value> {
         let (mut dialog, mut toasts) = (Value::Null, Vec::new());
         for root in self.roots().iter().rev() {
-            walk(root, &mut |widget| {
+            walk(root.upcast_ref(), &mut |widget| {
                 if !widget.is_mapped() {
                     return;
                 }
@@ -391,7 +453,7 @@ impl Qa {
             });
         }
         // An entry's text is a part of it with no role of its own: the entry is what has the keyboard.
-        let mut focus = RootExt::focus(&self.window);
+        let mut focus = RootExt::focus(&self.keyboard_window());
         while let Some(part) = focus
             .clone()
             .filter(|w| w.accessible_role() == gtk::AccessibleRole::None)
@@ -415,7 +477,7 @@ impl Qa {
         if key == gdk::Key::VoidSymbol {
             return Err("that key has no key symbol".to_owned());
         }
-        for window in self.app.windows() {
+        for window in self.roots() {
             self.watch(&window);
         }
         let input = INPUT
@@ -448,7 +510,7 @@ impl Qa {
             let start = Instant::now();
             while self.keys_seen.get() == before {
                 if start.elapsed() > Duration::from_secs(2) {
-                    return Err("the key never reached the app's windows".to_owned());
+                    return Err("the key never reached a window".to_owned());
                 }
                 glib::timeout_future(Duration::from_millis(5)).await;
             }
@@ -488,7 +550,7 @@ impl Qa {
     async fn finish(&self, failed: bool) {
         // Without a window the application would end its run, with status 0, before the answer.
         let _held = self.app.hold();
-        for window in self.app.windows() {
+        for window in self.roots() {
             window.destroy();
         }
         glib::timeout_future(Duration::from_millis(50)).await;
@@ -574,6 +636,10 @@ impl std::fmt::Display for Target {
         }
         Ok(())
     }
+}
+
+fn widgets(windows: &[gtk::Window]) -> Vec<gtk::Widget> {
+    windows.iter().map(|window| window.clone().upcast()).collect()
 }
 
 /// `f` on `widget` and every widget inside it, popovers included.
@@ -739,12 +805,18 @@ fn properties(widget: &gtk::Widget) -> Map<String, Value> {
     map
 }
 
-/// Whether a person could click `widget`: it is on screen, enabled, and nothing (a dialog over it) keeps the pointer
-/// from it.
+/// Whether a person could click `widget`: it is on screen, enabled, and nothing (a dialog over it, in its window or a
+/// modal window of its own) keeps the pointer from it.
 fn clickable(widget: &gtk::Widget) -> Result<(), String> {
     let blocked = |w: &gtk::Widget| !w.can_target();
     let mut ancestor = Some(widget.clone());
-    let mut under_dialog = false;
+    let window = widget.root().and_downcast::<gtk::Window>();
+    let mut under_dialog = window.is_some_and(|window| {
+        gtk::Window::list_toplevels()
+            .iter()
+            .filter_map(|other| other.downcast_ref::<gtk::Window>())
+            .any(|other| other.is_modal() && other.is_mapped() && is_over(other, &window))
+    });
     while let Some(w) = ancestor {
         under_dialog |= blocked(&w);
         ancestor = w.parent();
@@ -758,6 +830,18 @@ fn clickable(widget: &gtk::Widget) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+/// Whether `window` is transient for `under`, or for a window that is.
+fn is_over(window: &gtk::Window, under: &gtk::Window) -> bool {
+    let mut parent = window.transient_for();
+    while let Some(window) = parent {
+        if &window == under {
+            return true;
+        }
+        parent = window.transient_for();
+    }
+    false
 }
 
 /// broadway's numbers for what its page sends (`BROADWAY_EVENT_*`) and what it is sent (`BROADWAY_OP_*`).

@@ -15,9 +15,12 @@ command -v gtk4-broadwayd >/dev/null || { echo "qa: gtk4-broadwayd is required" 
 
 root=$(mktemp -d /tmp/omui-qa.XXXXXX)
 broadway_pid=""
+app_pid=""
 cleanup() {
   local status=$?
-  # Only the display this script started.
+  # Only the app and the display this script started.
+  [[ -z $app_pid ]] || kill -TERM "$app_pid" 2>/dev/null || true
+  [[ -z $app_pid ]] || wait "$app_pid" 2>/dev/null || true
   [[ -z $broadway_pid ]] || kill -TERM "$broadway_pid" 2>/dev/null || true
   [[ -z $broadway_pid ]] || wait "$broadway_pid" 2>/dev/null || true
   rm -rf -- "$root"
@@ -42,12 +45,17 @@ for _ in {1..50}; do
   sleep 0.1
 done
 
+# In the background, waited for: bash runs a trap only once the foreground command ends, and `timeout` puts the app in
+# a process group of its own, which Ctrl-C does not reach. Killing `timeout` stops the app with it.
 status=0
 env -u WAYLAND_DISPLAY -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u GTK_THEME \
   HOME="$root/home" XDG_CONFIG_HOME="$root/config" XDG_STATE_HOME="$root/state" XDG_DATA_HOME="$root/data" \
   XDG_CACHE_HOME="$root/cache" XDG_RUNTIME_DIR="$root/runtime" \
   GDK_BACKEND=broadway BROADWAY_DISPLAY=":$display" OMUI_QA=1 OMUI_QA_INPUT="127.0.0.1:$port" \
-  timeout "${OMUI_QA_TIMEOUT:-120}" "$app" <"$script" >"$root/answers" || status=$?
+  timeout "${OMUI_QA_TIMEOUT:-120}" "$app" <"$script" >"$root/answers" &
+app_pid=$!
+wait "$app_pid" || status=$?
+app_pid=""
 
 # Each command beside its answer; `quit`'s answer, or the failure that ended the run, comes last.
 grep -Ev '^[[:space:]]*(#|$)' "$script" | awk -v answers="$root/answers" '

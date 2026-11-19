@@ -68,4 +68,20 @@
 {"do":"shot","path":"target/qa-gallery-narrow.png"}
 {"do":"key","keys":"Escape"}
 {"do":"wait","role":"search-box","name":"Search contacts","visible":true}
+
+# A dialog over a window that has no Shell is a modal window of its own: QA finds it, keys reach it, and the window
+# under it takes no clicks. Last, as the editor window it opens stays.
+{"do":"resize","width":1100,"height":760}
+{"do":"set","role":"toggle-button","name":"Sidebar","checked":true}
+{"do":"select","role":"list-item","name":"Dialogs"}
+{"do":"click","role":"button","name":"From a window without a shell…"}
+{"do":"wait","dialog":"Delete this event?"}
+{"do":"wait","role":"button","name":"Delete","in":{"role":"dialog","name":"Delete this event?"},"visible":true}
+{"do":"key","keys":"Escape"}
+{"do":"wait","dialog":null}
+{"do":"click","role":"button","name":"Delete the event…"}
+{"do":"wait","dialog":"Delete this event?"}
+{"do":"click","role":"button","name":"Delete","in":{"role":"dialog","name":"Delete this event?"}}
+{"do":"wait","dialog":null}
+{"do":"wait","role":"label","name":"deleted"}
 {"do":"quit"}
