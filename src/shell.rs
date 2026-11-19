@@ -13,7 +13,7 @@ type Action = Rc<dyn Fn()>;
 /// How long a plain toast stays, as libadwaita's does.
 const TOAST_SECONDS: u32 = 5;
 
-/// A window's content under an overlay (class `om-shell`) that shows toasts above it.
+/// A window's content under an overlay (class `om-shell`) that shows toasts above it, and dialogs ([`crate::Dialog`]).
 pub struct Shell {
     pub overlay: gtk::Overlay,
     toast: gtk::Box,

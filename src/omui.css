@@ -24,10 +24,17 @@ window.csd.tiled-bottom, window.csd.tiled-left {
 }
 
 button:focus-visible, entry:focus-within, row:focus-visible, flowboxchild:focus-visible, link:focus-visible,
-label:focus-visible {
+label:focus-visible, checkbutton:focus-visible, switch:focus-visible, modelbutton:focus-visible,
+expander-widget:focus-visible > box > title, notebook:focus-visible > header > tabs > tab:checked,
+calendar > grid > label:focus, gridview > child:focus-visible {
   outline: 2px solid @om_accent;
   outline-offset: -2px;
 }
+
+/* What is switched off is drawn in a faded text colour, and only by that: the built-in theme also fades a disabled
+   icon, which on top of the colour all but hides it. */
+label:disabled, image:disabled, expander:disabled { color: alpha(@om_text, 0.4); }
+image:disabled, button:disabled { -gtk-icon-filter: none; }
 
 selection, entry selection, text selection, label selection { background: alpha(@om_accent, 0.35); color: @om_text; }
 
@@ -49,6 +56,8 @@ progressbar > trough, progressbar > trough > progress {
 }
 progressbar > trough { background: alpha(@om_border, 0.35); }
 progressbar > trough > progress { background: @om_accent; }
+progressbar > trough > progress:disabled { background: @om_dim_text; }
+progressbar > text { color: @om_dim_text; font-size: 0.85em; }
 
 tooltip {
   background: @om_surface;
@@ -59,6 +68,69 @@ tooltip {
   padding: 4px 8px;
 }
 tooltip label { color: @om_text; }
+
+/* --------------------------------------------------------------------------------- what GTK draws by itself -- */
+/* GTK takes its arrows, checks and steppers from the desktop's icon theme. Here they are the bundled icons, so an
+   omui window looks the same under any icon theme. The ones that are CSS nodes take a bundled file as their source. */
+dropdown arrow, menubutton arrow.down, expander:checked, sort-indicator.descending,
+notebook > header.left > tabs > arrow.up, notebook > header.right > tabs > arrow.up {
+  -gtk-icon-source: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-chevron-down-symbolic.svg"));
+}
+menubutton arrow.up, sort-indicator.ascending,
+notebook > header.left > tabs > arrow.down, notebook > header.right > tabs > arrow.down {
+  -gtk-icon-source: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-chevron-up-symbolic.svg"));
+}
+expander:not(:checked), modelbutton arrow.right, menubutton arrow.right,
+notebook > header.top > tabs > arrow.up, notebook > header.bottom > tabs > arrow.up {
+  -gtk-icon-source: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-chevron-right-symbolic.svg"));
+}
+expander:not(:checked):dir(rtl), modelbutton arrow.left, menubutton arrow.left,
+notebook > header.top > tabs > arrow.down, notebook > header.bottom > tabs > arrow.down {
+  -gtk-icon-source: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-chevron-left-symbolic.svg"));
+}
+check:checked {
+  -gtk-icon-source: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-check-symbolic.svg"));
+}
+check:indeterminate, radio:indeterminate {
+  -gtk-icon-source: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-minus-symbolic.svg"));
+}
+dropdown arrow, menubutton arrow, modelbutton arrow, expander, sort-indicator, notebook > header > tabs > arrow {
+  -gtk-icon-size: 14px;
+  min-height: 16px;
+  min-width: 16px;
+}
+
+/* The others are images GTK names from the icon theme, which no property redirects: the themed icon is faded out
+   and the bundled one drawn behind it, in the same colour. */
+spinbutton > button > image, entry.search > image, calendar > header > button > image,
+dropdown popover listview > row image {
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 14px 14px;
+  -gtk-icon-filter: opacity(0);
+}
+spinbutton > button.down > image {
+  background-image: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-minus-symbolic.svg"));
+}
+spinbutton > button.up > image {
+  background-image: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-plus-symbolic.svg"));
+}
+entry.search > image:first-child {
+  background-image: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-search-symbolic.svg"));
+}
+entry.search > image:last-child {
+  background-image: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-x-symbolic.svg"));
+}
+calendar > header > button:first-child > image, calendar > header > stack + button + button > image {
+  background-image: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-chevron-left-symbolic.svg"));
+}
+calendar > header > stack + button > image, calendar > header > button:last-child > image {
+  background-image: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-chevron-right-symbolic.svg"));
+}
+dropdown popover listview > row image {
+  background-image: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-check-symbolic.svg"));
+  color: @om_accent;
+}
 
 /* ------------------------------------------------------------------------------------------------- header bar -- */
 headerbar {
@@ -160,19 +232,154 @@ entry:focus-within { border-color: @om_accent; outline: none; }
 entry:disabled { background: alpha(@om_text, 0.02); border-color: alpha(@om_border, 0.3); color: alpha(@om_text, 0.4); }
 entry > text > placeholder { color: @om_dim_text; opacity: 1; }
 entry > image { color: @om_dim_text; -gtk-icon-size: 16px; }
-entry > image.left { margin-right: 6px; }
-entry > image.right { margin-left: 6px; }
+entry > image.left, entry.search > image:first-child { margin-right: 6px; }
+entry > image.right, entry.search > image:last-child, entry.password > image { margin-left: 6px; }
 entry.search-large { font-size: 1.1em; min-height: 34px; }
 entry.error { border-color: @om_danger; }
 
+/* A text view is bare: an editor fills its pane, and a field of several lines is one inside a frame. */
 textview, textview > text { background: transparent; caret-color: @om_accent; color: @om_text; }
+textview > text:disabled { color: alpha(@om_text, 0.4); }
+textview > border { background: transparent; }
+
+spinbutton {
+  background: alpha(@om_text, 0.04);
+  border: 1px solid alpha(@om_border, 0.6);
+  border-radius: 5px;
+  color: @om_text;
+  min-height: 26px;
+}
+spinbutton:focus-within { border-color: @om_accent; }
+spinbutton:disabled { background: alpha(@om_text, 0.02); border-color: alpha(@om_border, 0.3); color: alpha(@om_text, 0.4); }
+spinbutton > text { background: transparent; caret-color: @om_accent; min-width: 28px; padding: 0 8px; }
+spinbutton > button {
+  background: transparent;
+  border: none;
+  border-left: 1px solid alpha(@om_border, 0.6);
+  border-radius: 0;
+  color: @om_dim_text;
+  min-height: 0;
+  min-width: 16px;
+  padding: 0 5px;
+}
+spinbutton > button:last-child { border-radius: 0 4px 4px 0; }
+spinbutton > button:hover { background: alpha(@om_accent, 0.15); color: @om_text; }
+spinbutton > button:active { background: alpha(@om_accent, 0.22); }
+spinbutton > button:disabled { background: transparent; color: alpha(@om_text, 0.25); }
+spinbutton.vertical > text { min-height: 26px; }
+spinbutton.vertical > button { border-left: none; border-radius: 0; min-height: 20px; }
+spinbutton.vertical > button.up { border-bottom: 1px solid alpha(@om_border, 0.6); border-radius: 4px 4px 0 0; }
+spinbutton.vertical > button.down { border-top: 1px solid alpha(@om_border, 0.6); border-radius: 0 0 4px 4px; }
+
+/* ------------------------------------------------------------------------------------------ choices and ranges -- */
+checkbutton { border-radius: 5px; border-spacing: 8px; color: @om_text; padding: 3px 4px; }
+checkbutton:disabled { color: alpha(@om_text, 0.4); }
+check, radio {
+  background: alpha(@om_text, 0.04);
+  border: 1px solid @om_border;
+  box-shadow: none;
+  color: @om_bg;
+  min-height: 14px;
+  min-width: 14px;
+  transition: background 160ms ease-out, border-color 160ms ease-out;
+  -gtk-icon-size: 12px;
+}
+check { border-radius: 3px; }
+radio { border-radius: 100%; }
+check:hover, radio:hover { border-color: @om_accent; }
+check:checked, check:indeterminate, radio:indeterminate { background: @om_accent; border-color: @om_accent; }
+/* A dot of the accent inside the ring, which no icon draws as evenly at this size. */
+radio:checked {
+  background: radial-gradient(circle closest-side, @om_accent 50%, transparent 58%);
+  border-color: @om_accent;
+  -gtk-icon-source: none;
+}
+check:disabled, radio:disabled { opacity: 0.5; }
+
+/* On, the track is filled as a check is. A tint alone cannot be told from off in a theme without a hue. */
+switch {
+  background: @om_muted;
+  border: 1px solid alpha(@om_border, 0.8);
+  border-radius: 24px;
+  box-shadow: none;
+  min-height: 20px;
+  min-width: 40px;
+  transition: background 160ms ease-out, border-color 160ms ease-out;
+}
+switch:checked { background: @om_accent; border-color: @om_accent; }
+switch:disabled { opacity: 0.5; }
+switch > slider {
+  background: @om_dim_text;
+  border: none;
+  border-radius: 20px;
+  box-shadow: none;
+  margin: 1px;
+  min-height: 18px;
+  min-width: 18px;
+  transition: background 160ms ease-out;
+}
+switch:checked > slider { background: @om_bg; }
+/* The I and O glyphs of the built-in theme. */
+switch > image { -gtk-icon-filter: opacity(0); }
+
+scale { min-height: 10px; min-width: 10px; padding: 10px 8px; }
+scale:disabled { opacity: 0.5; }
+scale > trough {
+  background: alpha(@om_border, 0.35);
+  border: none;
+  border-radius: 2px;
+  min-height: 4px;
+  min-width: 4px;
+  outline: none;
+}
+scale > trough > highlight, scale > trough > fill { border: none; border-radius: 2px; margin: 0; }
+scale > trough > highlight { background: @om_accent; }
+scale > trough > fill { background: alpha(@om_accent, 0.35); }
+scale > trough > slider {
+  background: @om_accent;
+  border: none;
+  border-radius: 100%;
+  box-shadow: none;
+  margin: -5px;
+  min-height: 14px;
+  min-width: 14px;
+  transition: box-shadow 160ms ease-out;
+  /* The built-in theme draws the knob of a scale with marks from a picture. */
+  -gtk-icon-source: none;
+}
+scale > trough > slider:hover, scale > trough > slider:active { box-shadow: 0 0 0 4px alpha(@om_accent, 0.25); }
+scale:focus-visible > trough > slider { outline: 2px solid @om_accent; outline-offset: 2px; }
+scale > value, scale > marks { color: @om_dim_text; font-size: 0.85em; }
+scale > marks indicator { background: alpha(@om_border, 0.8); min-height: 5px; min-width: 1px; }
+scale.vertical > marks indicator { min-height: 1px; min-width: 5px; }
+
+dropdown > button { padding: 2px 8px 2px 10px; }
+dropdown > button > box { border-spacing: 6px; }
+dropdown arrow { color: @om_dim_text; }
+dropdown > popover { margin-top: 4px; }
+dropdown > popover.menu > contents { padding: 5px; }
+dropdown popover listview { margin: 0; }
+dropdown popover listview > row { border-radius: 5px; min-height: 22px; padding: 2px 8px; }
+dropdown popover listview > row:hover, dropdown popover listview > row:selected,
+dropdown popover listview > row:selected:hover {
+  background: alpha(@om_accent, 0.15);
+  color: @om_text;
+}
+dropdown popover listview > row > box { border-spacing: 12px; }
+dropdown popover .dropdown-searchbar {
+  border-bottom: 1px solid alpha(@om_border, 0.35);
+  margin-bottom: 5px;
+  padding: 0 0 5px;
+}
 
 /* ------------------------------------------------------------------------------------------- lists and popovers -- */
-list, listview, flowbox { background: transparent; color: @om_text; }
+list, listview, flowbox, gridview, columnview { background: transparent; color: @om_text; }
 /* Every row gets omui's hover and selection in place of the built-in theme's. Padding is the row kind's own. */
 list > row, listview > row { border-radius: 6px; transition: background-color 160ms ease-out; }
 list > row.activatable:hover, listview > row.activatable:hover { background: alpha(@om_text, 0.06); }
-list > row:selected, list > row:selected:hover, listview > row:selected, listview > row:selected:hover {
+flowbox > flowboxchild, gridview > child { border-radius: 6px; }
+list > row:selected, list > row:selected:hover, listview > row:selected, listview > row:selected:hover,
+flowbox > flowboxchild:selected, gridview > child:selected {
   background: alpha(@om_accent, 0.18);
   color: @om_text;
 }
@@ -186,9 +393,101 @@ popover > contents {
   padding: 5px;
 }
 popover > arrow { background: @om_surface; border: 1px solid alpha(@om_border, 0.6); }
-popover modelbutton { border-radius: 5px; color: @om_text; min-height: 24px; padding: 2px 8px; }
-popover modelbutton:hover { background: alpha(@om_accent, 0.15); }
-popover modelbutton:disabled { color: alpha(@om_text, 0.4); }
+popover separator { margin: 5px 0; }
+
+/* Menus: a popover menu's items are model buttons, and so are an app's own in a plain popover. */
+popover.menu > contents { padding: 5px; }
+modelbutton, popover.menu modelbutton {
+  background: transparent;
+  border-radius: 5px;
+  color: @om_text;
+  min-height: 26px;
+  padding: 0 10px;
+  transition: background 160ms ease-out;
+}
+modelbutton:hover, modelbutton:selected, popover.menu modelbutton:selected {
+  background: alpha(@om_accent, 0.15);
+  color: @om_text;
+}
+modelbutton:active, popover.menu modelbutton:selected:active { background: alpha(@om_accent, 0.22); }
+modelbutton:disabled { background: transparent; color: alpha(@om_text, 0.4); }
+modelbutton arrow { color: @om_dim_text; opacity: 1; }
+/* In a menu a check is the mark alone and a radio the dot alone, in the accent. */
+popover.menu check, popover.menu radio {
+  background: none;
+  border-color: transparent;
+  color: @om_accent;
+  transform: none;
+}
+popover.menu radio:checked { background: radial-gradient(circle closest-side, @om_accent 42%, transparent 50%); }
+/* A section's title, and a submenu's way back. */
+popover.menu label.title { color: @om_dim_text; font-size: 0.85em; font-weight: 650; padding: 4px 10px; }
+popover.menu modelbutton.title { font-weight: 650; }
+popover.menu accelerator { color: @om_dim_text; }
+
+/* ------------------------------------------------------------------------------------------------- containers -- */
+frame { border: 1px solid alpha(@om_border, 0.6); border-radius: 6px; box-shadow: none; }
+/* The frame's own label, not a label that is its content. */
+frame > label:first-child:not(:only-child) { color: @om_dim_text; font-size: 0.85em; font-weight: 650; margin: 4px 8px; }
+
+expander { color: @om_dim_text; }
+expander-widget > box > title { border-radius: 5px; border-spacing: 4px; padding: 2px 6px 2px 2px; }
+expander-widget > box > title:hover { background: alpha(@om_text, 0.06); }
+expander-widget > box > title:hover > expander { color: @om_text; }
+
+notebook, notebook > stack:not(:only-child) { background: transparent; }
+notebook.frame { border: 1px solid alpha(@om_border, 0.6); border-radius: 6px; }
+/* The strip keeps the built-in theme's geometry, which puts its one border on the side that faces the page. */
+notebook > header { background: transparent; border-color: alpha(@om_border, 0.6); }
+notebook > header > tabs > tab {
+  color: @om_dim_text;
+  font-weight: normal;
+  min-height: 26px;
+  outline: none;
+  padding: 2px 10px;
+  transition: background 160ms ease-out, color 160ms ease-out;
+}
+notebook > header > tabs > tab:hover { background: alpha(@om_text, 0.06); box-shadow: none; color: @om_text; }
+notebook > header > tabs > tab:checked { color: @om_text; }
+notebook > header.top > tabs > tab:checked { box-shadow: inset 0 -2px @om_accent; }
+notebook > header.bottom > tabs > tab:checked { box-shadow: inset 0 2px @om_accent; }
+notebook > header.left > tabs > tab:checked { box-shadow: inset -2px 0 @om_accent; }
+notebook > header.right > tabs > tab:checked { box-shadow: inset 2px 0 @om_accent; }
+notebook > header > tabs > arrow { background: transparent; border: none; box-shadow: none; color: @om_dim_text; }
+notebook > header > tabs > arrow:hover { background: alpha(@om_accent, 0.15); color: @om_text; }
+notebook > header > tabs > arrow:disabled { background: transparent; color: alpha(@om_text, 0.25); }
+notebook > header > tabs > tab button.flat { color: @om_dim_text; }
+
+calendar {
+  background: transparent;
+  border: 1px solid alpha(@om_border, 0.6);
+  border-radius: 6px;
+  color: @om_text;
+  padding: 4px;
+}
+calendar > header { border-bottom: 1px solid alpha(@om_border, 0.35); padding-bottom: 4px; }
+calendar > header > button {
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: @om_dim_text;
+  min-width: 24px;
+  padding: 2px;
+}
+calendar > header > button:hover { background: alpha(@om_accent, 0.15); color: @om_text; }
+calendar > header > button:active { background: alpha(@om_accent, 0.22); }
+calendar > grid > label.day-name, calendar > grid > label.week-number { color: @om_dim_text; font-size: 0.85em; }
+calendar > grid > label.day-number { border-radius: 5px; padding: 4px; }
+calendar > grid > label.day-number.other-month { color: alpha(@om_text, 0.35); }
+/* A day the app marked. */
+calendar > grid > label.day-number:checked { background: alpha(@om_accent, 0.12); }
+calendar > grid > label.today { box-shadow: inset 0 0 0 1px alpha(@om_accent, 0.6); color: @om_accent; }
+calendar > grid > label.day-number:selected, calendar > grid > label.today:selected {
+  background: @om_accent;
+  box-shadow: none;
+  color: @om_bg;
+  font-weight: 650;
+}
 
 /* ------------------------------------------------------------------------------------------------- scrollbars -- */
 scrolledwindow > undershoot, scrolledwindow > overshoot { background: none; box-shadow: none; }
@@ -305,4 +604,34 @@ button.sidebar-footer:hover { background: alpha(@om_text, 0.06); color: @om_text
   color: @om_text;
   margin: 18px;
   padding: 4px 4px 4px 12px;
+}
+
+/* ---------------------------------------------------------------------------------------------------- dialogs -- */
+/* A dialog is a card over a backdrop that covers its window's content (dialog.rs). */
+.dialog-backdrop { background: alpha(@om_bg, 0.55); }
+/* The title bar is outside what the backdrop covers. While a dialog holds it back (dialog.rs marks it) it fades into
+   the window by as much. */
+.titlebar.om-held-can-target { opacity: 0.45; }
+.dialog {
+  background: @om_surface;
+  border: 1px solid alpha(@om_border, 0.6);
+  border-radius: 9px;
+  box-shadow: 0 4px 14px alpha(black, 0.3);
+  color: @om_text;
+  margin: 24px;
+}
+/* In a window of its own, the window is the card. */
+window > .dialog { border: none; border-radius: 0; box-shadow: none; margin: 0; }
+.dialog-heading { font-size: 1.15em; font-weight: 700; padding: 18px 20px 0; }
+.dialog-body { color: @om_dim_text; padding: 6px 20px 0; }
+.dialog-body:first-child { padding-top: 18px; }
+.dialog-extra { padding: 14px 20px 0; }
+.dialog-heading:last-child, .dialog-body:last-child, .dialog-extra:last-child { padding-bottom: 18px; }
+/* With no heading and no body the app's widget is the whole dialog, to its edges. */
+.dialog-extra:first-child { padding: 0; }
+.dialog-actions {
+  border-spacing: 8px;
+  border-top: 1px solid alpha(@om_border, 0.35);
+  margin-top: 16px;
+  padding: 12px 20px 14px;
 }

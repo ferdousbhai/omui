@@ -18,7 +18,10 @@ omui follows Strata's way of theming GTK 4 on an Omarchy desktop, and parts of i
 - `data/omui.gresource.xml`, `data/theme-empty.css`: the empty theme registered under GTK's theme resource path.
 - `src/shell.rs`: `claim_titlebar`.
 - `src/omui.css`: the visual conventions (surface chrome with hairline borders, accent tints for hover and selection,
-  accent focus outlines, thin accent scrollbars). The rules themselves are omui's.
+  accent focus outlines, thin accent scrollbars), and pointing GTK's own arrows at bundled icons with
+  `-gtk-icon-source`. The rules themselves are omui's.
+- `src/dialog.rs`: a dialog as a layer over the window's content with a backdrop, in place of a second window. The
+  code is omui's.
 - The icons are bundled the way Strata bundles its `-symbolic` ones: Lucide strokes outlined as fills.
 
 ## Lucide

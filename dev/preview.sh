@@ -11,9 +11,12 @@ set -Eeuo pipefail
 # fallback. With `next-theme-dir` the scratch theme directory is then replaced by `mv` while the gallery runs, as
 # Omarchy does on a switch, and a second picture is written beside the first as `<screenshot>-switched.png`.
 #
-#   OMUI_GALLERY_PAGE   controls (default), icons, states or stock
+#   OMUI_GALLERY_PAGE, OMUI_GALLERY_OPEN, OMUI_GALLERY_TRACE   the gallery's own (examples/gallery.rs)
 #   OMUI_PREVIEW_BINARY the gallery to run (default target/debug/examples/gallery)
 #   OMUI_PREVIEW_SETTLE seconds to wait before each picture (default 4)
+#   OMUI_PREVIEW_KEYS   keys to press in the gallery before the first picture, as `wtype -k` names them, each with
+#                       an optional modifier ("Tab shift+Tab Return")
+#   OMUI_PREVIEW_LOG    a file for what the gallery printed
 if (( $# < 1 || $# > 3 )); then
   echo "usage: $0 <screenshot.png> [theme-dir [next-theme-dir]]" >&2
   exit 2
@@ -28,6 +31,8 @@ binary=${OMUI_PREVIEW_BINARY:-$here/../target/debug/examples/gallery}
 for command_name in Hyprland hyprctl grim jq dbus-daemon setsid; do
   command -v "$command_name" >/dev/null || { echo "preview: $command_name is required" >&2; exit 1; }
 done
+keys=${OMUI_PREVIEW_KEYS:-}
+[[ -z $keys ]] || command -v wtype >/dev/null || { echo "preview: wtype is required to press keys" >&2; exit 1; }
 for dir in "$theme" "$next_theme"; do
   [[ -z $dir || -f $dir/colors.toml ]] || { echo "preview: $dir has no colors.toml" >&2; exit 1; }
 done
@@ -167,6 +172,19 @@ shoot() {
   /usr/bin/grim -o omui "$1"
   echo "preview: $1"
 }
+if [[ -n $keys ]]; then
+  # Once the window is drawn and what OMUI_GALLERY_OPEN names is open. The nested compositor's keyboard is the
+  # gallery's: it is the only window there.
+  sleep 1.5
+  for key in $keys; do
+    if [[ $key == *+* ]]; then
+      wtype -M "${key%%+*}" -k "${key#*+}" -m "${key%%+*}"
+    else
+      wtype -k "$key"
+    fi
+    sleep 0.3
+  done
+fi
 shoot "$screenshot"
 if [[ -n $next_theme ]]; then
   stage_theme "$next_theme" next
@@ -176,4 +194,5 @@ if [[ -n $next_theme ]]; then
   basename -- "$(realpath -- "$next_theme")" > "$current/theme.name"
   shoot "${screenshot%.png}-switched.png"
 fi
+[[ -z ${OMUI_PREVIEW_LOG:-} ]] || cp -- "$root/gallery.log" "$OMUI_PREVIEW_LOG"
 [[ ! -s $root/gallery.log ]] || sed -n '1,20p' "$root/gallery.log" >&2

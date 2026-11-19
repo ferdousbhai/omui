@@ -593,6 +593,24 @@ mod tests {
         );
     }
 
+    /// GTK draws nothing for a file it cannot find, and says so only on stderr.
+    #[test]
+    fn every_icon_the_stylesheet_names_is_bundled() {
+        crate::icons::register();
+        let named: Vec<&str> = OMUI_CSS
+            .split("url(\"resource://")
+            .skip(1)
+            .map(|rest| rest.split('"').next().unwrap())
+            .collect();
+        assert!(!named.is_empty());
+        for path in named {
+            assert!(
+                gio::resources_lookup_data(path, gio::ResourceLookupFlags::NONE).is_ok(),
+                "{path}"
+            );
+        }
+    }
+
     fn write_theme(dir: &std::path::Path, background: &str) {
         std::fs::create_dir_all(dir).unwrap();
         let colors = format!("background = \"{background}\"\nforeground = \"#808080\"\naccent = \"#3366cc\"\n");

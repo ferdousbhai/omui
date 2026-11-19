@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: MIT
 //! Every omui widget in one window, for looking at a change in dark and light themes (dev/preview.sh).
 //!
-//!   OMUI_GALLERY_PAGE=controls|icons|states|stock   the page to open on
+//!   OMUI_GALLERY_PAGE=controls|icons|states|dialogs|inputs|menus|views   the page to open on
+//!   OMUI_GALLERY_OPEN=confirm|send|rename|upload|stop|window|dropdown|menu|popover
+//!                                             what to open on its page, as a click would
+//!   OMUI_GALLERY_TRACE=1                      print each focus change and dialog answer (dev/keys.sh reads them)
 //!   OMUI_SHOT=<file.png>                      with feature `dev`: write the window through `omui::dev::shot`
 
 use std::rc::Rc;
 
 use omui::{
-    Banner, EmptyState, Shell, Theme, Title,
-    gtk::{self, glib, prelude::*},
+    Appearance, Banner, Dialog, EmptyState, Shell, Theme, Title,
+    gtk::{self, gio, glib, prelude::*},
     icons::name,
 };
 
@@ -16,6 +19,9 @@ use omui::{
 const APP_CSS: &str = "
 .gallery-page { padding: 20px 28px; }
 .reader { font-family: serif; }
+.upload { border-spacing: 10px; padding: 18px 20px; }
+.note { padding: 8px 10px; }
+.tile { padding: 14px 18px; }
 .swatch { border: 1px solid alpha(@om_border, 0.6); border-radius: 5px; min-height: 28px; min-width: 76px; }
 .swatch.bg { background: @om_bg; }
 .swatch.surface { background: @om_surface; }
@@ -34,8 +40,20 @@ const PAGES: &[(&str, &str, &str)] = &[
     ("controls", name::SETTINGS, "Controls"),
     ("icons", name::IMAGE, "Icons"),
     ("states", name::INFO, "States"),
-    ("stock", name::CHECKED, "GTK's own"),
+    ("dialogs", name::CHAT, "Dialogs"),
+    ("inputs", name::CHECKED, "Inputs"),
+    ("menus", name::DOWN, "Menus"),
+    ("views", name::CALENDAR, "Views"),
 ];
+
+/// What `OMUI_GALLERY_OPEN` can name: the page it is on, and what a click on it does.
+type Openers = Vec<(&'static str, &'static str, Rc<dyn Fn()>)>;
+
+fn trace(line: &str) {
+    if std::env::var_os("OMUI_GALLERY_TRACE").is_some() {
+        println!("{line}");
+    }
+}
 
 fn main() -> glib::ExitCode {
     omui::application(
@@ -106,7 +124,11 @@ fn open(app: &gtk::Application) {
     stack.add_named(&controls(), Some("controls"));
     stack.add_named(&icons(), Some("icons"));
     stack.add_named(&states(&shell), Some("states"));
-    stack.add_named(&stock(), Some("stock"));
+    let mut openers = Openers::new();
+    stack.add_named(&dialogs(app, &mut openers), Some("dialogs"));
+    stack.add_named(&inputs(&mut openers), Some("inputs"));
+    stack.add_named(&menus(&mut openers), Some("menus"));
+    stack.add_named(&views(), Some("views"));
     list.connect_row_selected({
         let stack = stack.clone();
         move |_, row| {
@@ -115,7 +137,12 @@ fn open(app: &gtk::Application) {
             }
         }
     });
-    let first = std::env::var("OMUI_GALLERY_PAGE").unwrap_or_default();
+    let opener = std::env::var("OMUI_GALLERY_OPEN").ok();
+    let opener = openers.iter().find(|(id, ..)| Some(*id) == opener.as_deref());
+    let first = opener.map_or_else(
+        || std::env::var("OMUI_GALLERY_PAGE").unwrap_or_default(),
+        |(_, page, _)| (*page).to_owned(),
+    );
     let index = PAGES.iter().position(|(id, ..)| *id == first).unwrap_or(0);
     list.select_row(list.row_at_index(index as i32).as_ref());
     if PAGES[index].0 == "states" {
@@ -128,7 +155,26 @@ fn open(app: &gtk::Application) {
             }
         });
     }
+    if std::env::var_os("OMUI_GALLERY_TRACE").is_some() {
+        window.connect_focus_widget_notify(|window| {
+            let focus = RootExt::focus(window);
+            let button = focus.as_ref().and_then(|w| w.downcast_ref::<gtk::Button>());
+            let name = match (button.and_then(|b| b.label()), &focus) {
+                (Some(label), _) => label.to_string(),
+                (None, Some(widget)) => widget.css_name().to_string(),
+                (None, None) => "nothing".to_owned(),
+            };
+            trace(&format!("focus: {name}"));
+        });
+    }
     window.present();
+    if let Some((.., open)) = opener {
+        // After the window has its size, as a click would come.
+        glib::timeout_add_local_once(std::time::Duration::from_millis(400), {
+            let open = open.clone();
+            move || open()
+        });
+    }
 
     #[cfg(feature = "dev")]
     if let Some(path) = std::env::var_os("OMUI_SHOT") {
@@ -447,51 +493,385 @@ fn states(shell: &Rc<Shell>) -> gtk::Box {
     column
 }
 
-/// Widgets omui 0.1 has no rule for. They keep GTK's built-in look, which has to be the palette's variant: a white
-/// calendar in a dark window is the built-in theme left light.
-fn stock() -> gtk::ScrolledWindow {
+/// Every way a dialog is used: a question, a form with a response that waits for valid input, the app's own content
+/// that cannot be closed, one dialog over another, and a window with no shell to draw on.
+fn dialogs(app: &gtk::Application, openers: &mut Openers) -> gtk::ScrolledWindow {
     let (scroll, column) = page();
-    column.append(&omui::label("GTK's own", "page-title"));
+    column.append(&omui::label("Dialogs", "page-title"));
     column.append(&omui::label(
-        "Widgets without an omui rule yet, in the built-in theme's variant for this palette.",
+        "Drawn inside the window, over its content. Escape gives the close response, Enter the default one.",
         "dim-label",
     ));
-    let radio = gtk::CheckButton::builder().label("Radio").active(true).build();
-    let other = gtk::CheckButton::builder().label("Other").group(&radio).build();
-    column.append(&row(&[
+    let answer = omui::label("No answer yet.", "status-line");
+    let said = Rc::new({
+        let answer = answer.clone();
+        move |text: &str| {
+            answer.set_label(text);
+            trace(&format!("answer: {text}"));
+        }
+    });
+    let mut opener = |id: &'static str, label: &str, open: Rc<dyn Fn(&gtk::Button)>| {
+        let button = gtk::Button::with_label(label);
+        button.connect_clicked({
+            let open = open.clone();
+            move |button| open(button)
+        });
+        openers.push((id, "dialogs", {
+            let button = button.clone();
+            Rc::new(move || open(&button))
+        }));
+        button.upcast::<gtk::Widget>()
+    };
+
+    let confirm = opener(
+        "confirm",
+        "Discard a draft…",
+        Rc::new({
+            let said = said.clone();
+            move |button| {
+                let said = said.clone();
+                omui::confirm(
+                    button,
+                    "Discard this draft?",
+                    "The message to Ada has not been sent. A discarded draft cannot be brought back.",
+                    "Discard",
+                    Appearance::Destructive,
+                    move || said("discarded"),
+                );
+            }
+        }),
+    );
+    let send = opener(
+        "send",
+        "Send without a subject…",
+        Rc::new({
+            let said = said.clone();
+            move |button| {
+                let said = said.clone();
+                omui::confirm(
+                    button,
+                    "Send without a subject?",
+                    "The message has no subject line.",
+                    "Send",
+                    Appearance::Suggested,
+                    move || said("sent"),
+                );
+            }
+        }),
+    );
+    let rename = opener(
+        "rename",
+        "Rename a folder…",
+        Rc::new({
+            let said = said.clone();
+            move |button| {
+                let dialog = Dialog::new(Some("Rename the folder"), Some("The new name appears on every device."));
+                let entry = gtk::Entry::builder().text("Receipts").activates_default(true).build();
+                dialog.set_extra_child(Some(entry.upcast_ref()));
+                dialog.add_response("cancel", "Cancel");
+                dialog.add_response("rename", "Rename");
+                dialog.set_response_appearance("rename", Appearance::Suggested);
+                dialog.set_default_response("rename");
+                dialog.set_close_response("cancel");
+                entry.connect_changed({
+                    let dialog = dialog.clone();
+                    move |entry| dialog.set_response_enabled("rename", !entry.text().trim().is_empty())
+                });
+                dialog.connect_response({
+                    let said = said.clone();
+                    move |dialog, id| {
+                        said(&format!("{id}: {}", entry.text()));
+                        // The entry's handler holds the dialog, and the dialog the entry.
+                        dialog.set_extra_child(None);
+                    }
+                });
+                dialog.present(button);
+            }
+        }),
+    );
+    let upload = |button: &gtk::Button| {
+        let dialog = Dialog::new(None, None);
+        let content = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .css_classes(["upload"])
+            .build();
+        content.append(&omui::label("Uploading 3 photos", "heading"));
+        content.append(&gtk::ProgressBar::builder().fraction(0.4).build());
+        content.append(&omui::label("2 of 3 · harbour-at-dawn.jpg", "meta"));
+        let stop = gtk::Button::builder().label("Stop").halign(gtk::Align::End).build();
+        content.append(&stop);
+        dialog.set_extra_child(Some(content.upcast_ref()));
+        dialog.set_content_size(380, -1);
+        // Escape does nothing here: the upload ends or is stopped.
+        dialog.set_can_close(false);
+        dialog.present(button);
+        stop.clone().connect_clicked(move |stop| {
+            let dialog = dialog.clone();
+            omui::confirm(
+                stop,
+                "Stop the upload?",
+                "The photo being sent is left out.",
+                "Stop",
+                Appearance::Destructive,
+                move || {
+                    dialog.force_close();
+                    // The Stop button's handler holds the dialog, and the dialog the button.
+                    dialog.set_extra_child(None);
+                },
+            );
+        });
+        stop
+    };
+    let uploading = opener(
+        "upload",
+        "Upload photos…",
+        Rc::new(move |button| {
+            upload(button);
+        }),
+    );
+    let window = opener(
+        "window",
+        "From a window without a shell…",
+        Rc::new({
+            let app = app.clone();
+            let said = said.clone();
+            move |_| {
+                let delete = gtk::Button::builder()
+                    .label("Delete the event…")
+                    .halign(gtk::Align::Center)
+                    .valign(gtk::Align::Center)
+                    .build();
+                let editor = gtk::Window::builder()
+                    .application(&app)
+                    .title("An editor window")
+                    .default_width(420)
+                    .default_height(260)
+                    .child(&delete)
+                    .build();
+                let ask = {
+                    let said = said.clone();
+                    move |button: &gtk::Button| {
+                        let said = said.clone();
+                        omui::confirm(
+                            button,
+                            "Delete this event?",
+                            "It is removed from every calendar it was shared with.",
+                            "Delete",
+                            Appearance::Destructive,
+                            move || said("deleted"),
+                        );
+                    }
+                };
+                delete.connect_clicked(ask.clone());
+                editor.present();
+                ask(&delete);
+            }
+        }),
+    );
+    openers.push(("stop", "dialogs", {
+        let button = uploading.clone().downcast::<gtk::Button>().expect("a button");
+        Rc::new(move || upload(&button).emit_clicked())
+    }));
+    column.append(&row(&[&confirm, &send, &rename, &uploading, &window]));
+    column.append(&answer);
+    scroll
+}
+
+fn inputs(openers: &mut Openers) -> gtk::ScrolledWindow {
+    let (scroll, column) = page();
+    column.append(&omui::label("Inputs", "page-title"));
+
+    column.append(&omui::label("Switches, checks and radios", "section-title"));
+    let switch = |active: bool, sensitive: bool| {
         gtk::Switch::builder()
-            .active(true)
+            .active(active)
+            .sensitive(sensitive)
             .valign(gtk::Align::Center)
             .build()
-            .upcast_ref(),
+            .upcast::<gtk::Widget>()
+    };
+    column.append(&row(&[
+        &switch(true, true),
+        &switch(false, true),
+        &switch(true, false),
+        &switch(false, false),
+    ]));
+    let check = |label: &str, active: bool, sensitive: bool| {
         gtk::CheckButton::builder()
-            .label("Check")
-            .active(true)
+            .label(label)
+            .active(active)
+            .sensitive(sensitive)
             .build()
-            .upcast_ref(),
-        radio.upcast_ref(),
-        other.upcast_ref(),
-        gtk::SpinButton::with_range(0.0, 10.0, 1.0).upcast_ref(),
-        gtk::DropDown::from_strings(&["Week", "Month"]).upcast_ref(),
+    };
+    let mixed = check("Some", false, true);
+    mixed.set_inconsistent(true);
+    column.append(&row(&[
+        check("Checked", true, true).upcast_ref(),
+        check("Unchecked", false, true).upcast_ref(),
+        mixed.upcast_ref(),
+        check("Disabled", true, false).upcast_ref(),
+        check("Disabled", false, false).upcast_ref(),
+    ]));
+    let week = check("Week", true, true);
+    let month = check("Month", false, true);
+    month.set_group(Some(&week));
+    let year = check("Year", false, false);
+    year.set_group(Some(&week));
+    let never = check("Disabled", true, false);
+    never.set_group(Some(&check("", false, true)));
+    column.append(&row(&[
+        week.upcast_ref(),
+        month.upcast_ref(),
+        year.upcast_ref(),
+        never.upcast_ref(),
+    ]));
+
+    column.append(&omui::label("Choices and numbers", "section-title"));
+    let dropdown = gtk::DropDown::from_strings(&["Every day", "Every week", "Every month", "Never"]);
+    dropdown.set_selected(1);
+    openers.push(("dropdown", "inputs", {
+        let dropdown = dropdown.clone();
+        Rc::new(move || {
+            dropdown.activate();
+        })
+    }));
+    let off = gtk::DropDown::from_strings(&["Disabled"]);
+    off.set_sensitive(false);
+    let spin = gtk::SpinButton::with_range(0.0, 10.0, 1.0);
+    spin.set_value(3.0);
+    let spin_off = gtk::SpinButton::with_range(0.0, 10.0, 1.0);
+    spin_off.set_sensitive(false);
+    column.append(&row(&[
+        dropdown.upcast_ref(),
+        off.upcast_ref(),
+        spin.upcast_ref(),
+        spin_off.upcast_ref(),
     ]));
     let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 1.0);
     scale.set_value(40.0);
     scale.set_hexpand(true);
-    let progress = gtk::ProgressBar::builder()
-        .fraction(0.4)
-        .valign(gtk::Align::Center)
+    for mark in [0.0, 50.0, 100.0] {
+        scale.add_mark(mark, gtk::PositionType::Bottom, Some(&format!("{mark}")));
+    }
+    let plain = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 1.0);
+    plain.set_value(70.0);
+    plain.set_hexpand(true);
+    let scale_off = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 1.0);
+    scale_off.set_value(25.0);
+    scale_off.set_hexpand(true);
+    scale_off.set_sensitive(false);
+    column.append(&row(&[scale.upcast_ref(), plain.upcast_ref(), scale_off.upcast_ref()]));
+
+    column.append(&omui::label("Text", "section-title"));
+    let search = gtk::SearchEntry::builder().text("ferry").hexpand(true).build();
+    let empty = gtk::SearchEntry::builder()
+        .placeholder_text("Search mail")
         .hexpand(true)
         .build();
-    column.append(&row(&[scale.upcast_ref(), progress.upcast_ref()]));
+    let password = gtk::PasswordEntry::builder()
+        .show_peek_icon(true)
+        .text("correct horse")
+        .hexpand(true)
+        .build();
+    column.append(&row(&[search.upcast_ref(), empty.upcast_ref(), password.upcast_ref()]));
+    let text = gtk::TextView::builder()
+        .wrap_mode(gtk::WrapMode::WordChar)
+        .css_classes(["note"])
+        .height_request(84)
+        .build();
+    text.buffer()
+        .set_text("A text view is bare, so an editor can fill its pane.\nIn a frame it is a field of several lines.");
+    column.append(&gtk::Frame::builder().child(&text).build());
+    scroll
+}
+
+fn menus(openers: &mut Openers) -> gtk::ScrolledWindow {
+    let (scroll, column) = page();
+    column.append(&omui::label("Menus", "page-title"));
+    column.append(&omui::label(
+        "A menu from a model, with a check, a choice, a section and a submenu; and a popover of the app's own.",
+        "dim-label",
+    ));
+
+    let actions = gio::SimpleActionGroup::new();
+    actions.add_action(&gio::SimpleAction::new("reply", None));
+    actions.add_action(&gio::SimpleAction::new("move", None));
+    actions.add_action(&gio::SimpleAction::new_stateful("unread", None, &true.to_variant()));
+    actions.add_action(&gio::SimpleAction::new_stateful(
+        "density",
+        Some(glib::VariantTy::STRING),
+        &"cosy".to_variant(),
+    ));
+    let menu = gio::Menu::new();
+    menu.append(Some("Reply"), Some("demo.reply"));
+    // No such action, so the item is disabled.
+    menu.append(Some("Forward"), Some("demo.forward"));
+    menu.append(Some("Mark as unread"), Some("demo.unread"));
+    let density = gio::Menu::new();
+    density.append(Some("Cosy"), Some("demo.density::cosy"));
+    density.append(Some("Compact"), Some("demo.density::compact"));
+    menu.append_section(Some("Density"), &density);
+    let folders = gio::Menu::new();
+    folders.append(Some("Archive"), Some("demo.move"));
+    folders.append(Some("Receipts"), Some("demo.move"));
+    let more = gio::Menu::new();
+    more.append_submenu(Some("Move to"), &folders);
+    menu.append_section(None, &more);
+    let from_model = gtk::MenuButton::builder().label("Message").menu_model(&menu).build();
+    from_model.insert_action_group("demo", Some(&actions));
+    openers.push(("menu", "menus", {
+        let button = from_model.clone();
+        Rc::new(move || button.popup())
+    }));
+
+    let form = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(8)
+        .build();
+    form.append(&omui::label("Show", "heading"));
+    form.append(&gtk::CheckButton::builder().label("Read messages").active(true).build());
+    form.append(&gtk::CheckButton::builder().label("Drafts").build());
+    form.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    form.append(&button("Reset", &["flat"]));
+    let popover = gtk::Popover::builder().child(&form).build();
+    let own = gtk::MenuButton::builder()
+        .icon_name(name::SETTINGS)
+        .tooltip_text("View options")
+        .popover(&popover)
+        .build();
+    openers.push(("popover", "menus", {
+        let button = own.clone();
+        Rc::new(move || button.popup())
+    }));
+    let up = gtk::MenuButton::builder()
+        .label("Upwards")
+        .direction(gtk::ArrowType::Up)
+        .menu_model(&density)
+        .build();
+    up.insert_action_group("demo", Some(&actions));
+    column.append(&row(&[from_model.upcast_ref(), own.upcast_ref(), up.upcast_ref()]));
+    scroll
+}
+
+fn views() -> gtk::ScrolledWindow {
+    let (scroll, column) = page();
+    column.append(&omui::label("Views", "page-title"));
+
     let notebook = gtk::Notebook::builder().hexpand(true).build();
-    for tab in ["First", "Second"] {
-        let body = omui::label(&format!("{tab} page of a notebook."), "gallery-page");
+    for tab in ["Inbox", "Sent", "Archive"] {
+        let body = omui::label(&format!("{tab}: a page of a notebook."), "gallery-page");
         notebook.append_page(&body, Some(&gtk::Label::new(Some(tab))));
     }
     let frame = gtk::Frame::builder()
         .label("Frame")
-        .child(&omui::label("Inside a frame.", "gallery-page"))
+        .child(&omui::label("Inside a frame.", "tile"))
         .build();
+    let expander = gtk::Expander::builder()
+        .label("Details")
+        .expanded(true)
+        .child(&omui::label("What an open expander shows.", "tile"))
+        .build();
+    let closed = gtk::Expander::builder().label("More").build();
     let side = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(10)
@@ -499,6 +879,64 @@ fn stock() -> gtk::ScrolledWindow {
         .build();
     side.append(&notebook);
     side.append(&frame);
-    column.append(&row(&[gtk::Calendar::new().upcast_ref(), side.upcast_ref()]));
+    side.append(&expander);
+    side.append(&closed);
+    let calendar = gtk::Calendar::builder().valign(gtk::Align::Start).build();
+    calendar.mark_day(3);
+    calendar.mark_day(24);
+    column.append(&row(&[calendar.upcast_ref(), side.upcast_ref()]));
+
+    column.append(&omui::label("Progress", "section-title"));
+    let bar = |fraction: f64| {
+        gtk::ProgressBar::builder()
+            .fraction(fraction)
+            .valign(gtk::Align::Center)
+            .hexpand(true)
+            .build()
+    };
+    let with_text = bar(0.7);
+    with_text.set_show_text(true);
+    with_text.set_text(Some("7 of 10 notes"));
+    let stalled = bar(0.25);
+    stalled.set_sensitive(false);
+    column.append(&row(&[
+        bar(0.4).upcast_ref(),
+        with_text.upcast_ref(),
+        stalled.upcast_ref(),
+    ]));
+
+    column.append(&omui::label("Selected and disabled", "section-title"));
+    let list = gtk::ListBox::builder().hexpand(true).build();
+    for (text, sensitive) in [("Selected row", true), ("A row", true), ("Disabled row", false)] {
+        list.append(
+            &gtk::ListBoxRow::builder()
+                .child(&omui::label(text, "note"))
+                .sensitive(sensitive)
+                .build(),
+        );
+    }
+    list.select_row(list.row_at_index(0).as_ref());
+    let tiles = gtk::FlowBox::builder()
+        .hexpand(true)
+        .max_children_per_line(3)
+        .min_children_per_line(3)
+        .valign(gtk::Align::Start)
+        .build();
+    for text in ["Selected", "Tile", "Tile"] {
+        tiles.append(&omui::label(text, "tile"));
+    }
+    tiles.select_child(&tiles.child_at_index(0).expect("the first tile"));
+    column.append(&row(&[list.upcast_ref(), tiles.upcast_ref()]));
+    let off = row(&[
+        omui::label("Everything here is disabled", "").upcast_ref(),
+        omui::icon(name::CLOUD).upcast_ref(),
+        &button("Button", &[]),
+        &button("Suggested", &["suggested-action"]),
+        omui::icon_button(name::EDIT, "Edit").upcast_ref(),
+        gtk::Entry::builder().text("Entry").build().upcast_ref(),
+        gtk::Expander::builder().label("Expander").build().upcast_ref(),
+    ]);
+    off.set_sensitive(false);
+    column.append(&off);
     scroll
 }

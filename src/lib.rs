@@ -4,6 +4,7 @@
 
 #[cfg(feature = "dev")]
 pub mod dev;
+mod dialog;
 pub mod icons;
 mod shell;
 pub mod theme;
@@ -12,6 +13,7 @@ mod widgets;
 pub use gtk;
 use gtk::{gdk, gio, glib, prelude::*};
 
+pub use dialog::{Appearance, Dialog, confirm};
 pub use icons::{data_uri, icon, icon_button};
 pub use shell::{Shell, Title, claim_titlebar, header};
 pub use theme::{Theme, Tokens, blend, omarchy_state_dir};

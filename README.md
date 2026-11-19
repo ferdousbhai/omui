@@ -11,7 +11,7 @@ theming approach it follows.
 
 ```toml
 [dependencies]
-omui = { git = "https://github.com/ferdousbhai/omui", rev = "<40-hex>" } # v0.1.0
+omui = { git = "https://github.com/ferdousbhai/omui", rev = "<40-hex>" } # v0.2.0
 ```
 
 Building needs `glib-compile-resources` (on Arch it is part of `glib2`).
@@ -43,7 +43,7 @@ A packaged app carries the Strata and Lucide notices with it, since its binary h
 the Lucide icons: ship [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)'s two entries and the texts under
 `data/licenses/` among the app's own notices.
 
-## What is in 0.1
+## What is in 0.2
 
 | | |
 |---|---|
@@ -51,6 +51,7 @@ the Lucide icons: ship [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)'s two en
 | `Theme`, `Tokens`, `blend`, `omarchy_state_dir` | The installed look, its colours, and a listener for what CSS cannot reach |
 | `icons::name::*`, `icon`, `icon_button`, `data_uri` | 38 bundled Lucide icons as GTK symbolic icons |
 | `Shell`, `header`, `Title`, `claim_titlebar` | The window's overlay with toasts, and its header bar |
+| `Dialog`, `confirm`, `Appearance` | A dialog drawn inside its window, and the question most of them are |
 | `label`, `badge`, `sidebar_row`, `clear`, `set_class` | Small builders |
 | `Banner`, `EmptyState` | A message bar; what an empty page or list shows |
 | `dev::shot` (feature `dev`) | A widget written to a PNG, for before-and-after pictures |
@@ -74,6 +75,35 @@ a reset, GTK's built-in theme, `omui.css`, the app's CSS, then the tokens. The r
 omui and libadwaita cannot share a process. A widget `omui.css` has no rule for keeps the built-in theme's look, dark
 or light as the palette is.
 
+## Dialogs
+
+```rust
+omui::confirm(&button, "Discard this draft?", "It cannot be brought back.", "Discard",
+    omui::Appearance::Destructive, move || discard());
+```
+
+`Dialog` has the methods of `adw::AlertDialog` and `adw::Dialog`: a heading, a body, a widget of the app's
+(`set_extra_child`, `set_content_size`), and responses (`add_response`, `set_response_appearance`,
+`set_response_enabled`, `set_default_response`, `set_close_response`, `connect_response`). It is drawn over the
+window's content, on the `Shell` overlay, because a second window would be tiled beside the first. While it is open
+the content and the title bar take neither keys nor the pointer. Tab stays inside it, Escape gives the close response,
+and Enter the default one: from an entry too, when the entry has `set_activates_default(true)`. `set_can_close(false)`
+makes Escape do nothing until `force_close`. A window that has no `Shell` gets a modal window instead.
+
+A dialog owns its widgets, so a handler on one of them that holds the dialog keeps both alive. Take the widget out
+when the dialog is answered (`set_extra_child(None)` in `connect_response`), as the gallery's rename dialog does.
+
+## GTK's own widgets
+
+`omui.css` has rules for the stock widgets an app is likely to use, so they need no classes: button, entry, search
+and password entry, spin button, text view, check and radio button, switch, scale, drop-down and its list, menu
+button, popover and popover menu, notebook, calendar, frame, expander, progress bar, tooltip, lists and their
+selection, and the disabled state of each. A text view is bare, so that an editor can fill its pane; inside a `Frame`
+it is a field of several lines.
+
+The arrows, checks and steppers GTK draws for them are the bundled icons, whatever icon theme the desktop has. One
+is not: the eye of a password entry is the icon theme's.
+
 ## Style classes
 
 GTK and Adwaita names are kept where one exists.
@@ -82,7 +112,8 @@ GTK and Adwaita names are kept where one exists.
 - Text: `dim-label` `title-1` `title-2` `title-4` `heading` `caption` `numeric` `monospace` `error` `warning`
   `success` `accent` `page-title` `section-title` `meta` `status-line`
 - Containers: `sidebar` `sidebar-row` `sidebar-footer` `toolbar` `result` `result-title` `snippet` `badge`
-  `empty-state` `compact` `banner` `toast` `om-shell` `search-large`
+  `empty-state` `compact` `banner` `toast` `om-shell` `search-large` `dialog` `dialog-backdrop` `dialog-heading`
+  `dialog-body` `dialog-extra` `dialog-actions`
 
 Three of them mean something narrower than the same name in an app's old stylesheet:
 
@@ -109,9 +140,14 @@ cargo build --example gallery
 dev/preview.sh /tmp/dark.png
 dev/preview.sh /tmp/light.png /usr/share/omarchy/themes/catppuccin-latte
 OMUI_GALLERY_PAGE=icons dev/preview.sh /tmp/live.png /usr/share/omarchy/themes/gruvbox /usr/share/omarchy/themes/white
+OMUI_GALLERY_OPEN=rename dev/preview.sh /tmp/dialog.png
 ```
 
-The last form switches the theme while the gallery runs and writes `/tmp/live-switched.png` as well.
+The fourth form switches the theme while the gallery runs and writes `/tmp/live-switched.png` as well. The last
+opens one of the gallery's dialogs, its drop-down or a menu for the picture; `examples/gallery.rs` lists them.
+
+`dev/keys.sh` presses Tab, Enter and Escape in the gallery's dialogs, in the same nested desktop, and checks where
+the focus went and what was answered. It needs `wtype`.
 
 The icons under `data/icons` are generated from Lucide by `dev/outline` and committed; its source says how to run it.
 
