@@ -45,6 +45,9 @@ pub fn application(
     app.connect_startup(move |_| {
         if let Some(display) = gdk::Display::default() {
             Theme::install(&display, app_css);
+            // A selectable label (a fingerprint, a status line) is often the first focus stop; GTK would select all of
+            // it as a window opens, which reads as a stray highlight. Selecting stays the reader's choice.
+            gtk::Settings::for_display(&display).set_gtk_label_select_on_focus(false);
         }
     });
     app.connect_activate(move |app| match app.active_window() {
