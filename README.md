@@ -130,7 +130,7 @@ whether one is open, for whatever else an app starts from outside the window. Ta
 close response, and Enter the default one: from an entry too, when the entry has `set_activates_default(true)`.
 `set_can_close(false)` makes Escape do nothing until `force_close`. `set_response_closes(id, false)` keeps the dialog
 open when that response is given, for an action on what it shows (Clear in a log): its handlers run with the dialog on
-screen. The close response always closes. A window that has no `Shell` gets a modal window
+screen. The close response always closes, from its button as from Escape. A window that has no `Shell` gets a modal window
 instead.
 
 A dialog with a heading or a body is 420 pixels wide, margins included, so its text wraps at a readable width; it is
@@ -168,9 +168,11 @@ The keyboard goes with the pane that is shown, and comes back to where it was. T
 
 `set_resizable(true)` puts a divider between the two panes while both are on screen. It is dragged, or takes the
 keyboard in its turn after the sidebar, where Left and Right move it 16 pixels and Home and End to the sidebar's least
-and most: the limits given to `Split::new`, and no more than leaves the content what it needs. `sidebar_width()` is
-the width to save when the window closes, `set_sidebar_width(saved)` restores it, and `connect_changed` runs after
-each move.
+and most: the limits given to `Split::new`, and no more than leaves the content what it needs. A screen reader hears
+the width and the limits. `sidebar_width()` is the width to save when the window closes, `set_sidebar_width(saved)`
+restores it, and `connect_changed` runs after each move. A sidebar that changes what it shows (Notes' folder and note
+panes, and its tree) takes new limits with `set_sidebar_limits((least, most))`, then `set_sidebar_width` with the width
+saved for them: one divider serves both.
 
 ```rust
 let split = omui::Split::new(&lists, &editor, (200, 500), Some(560));

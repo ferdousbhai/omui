@@ -201,6 +201,8 @@ mod imp {
         /// Whether the last width called for one pane, and what to tell when that changes.
         pub collapsed: Cell<bool>,
         pub on_collapsed: RefCell<Option<Told>>,
+        /// The least, the most and the width a screen reader was last told of the divider; none for a new divider.
+        pub divider_told: Cell<Option<(i32, i32, i32)>>,
     }
 
     impl SplitLayout {
@@ -320,6 +322,17 @@ mod imp {
                 let edge = if places.len() == 2 { places[1].1 } else { -divider_width };
                 divider.measure(gtk::Orientation::Vertical, divider_width);
                 place(&divider, edge - divider_width / 2, divider_width, height, baseline);
+                // Here, where the width they depend on is known: a width set before the window is first laid out,
+                // or a window resized, changes them as surely as the divider moving does.
+                let (least, most) = self.sidebar_limits(&sidebar, &content, width);
+                let told = (least, most, self.sidebar(&sidebar, &content, width));
+                if self.divider_told.replace(Some(told)) != Some(told) {
+                    divider.update_property(&[
+                        gtk::accessible::Property::ValueMin(f64::from(told.0)),
+                        gtk::accessible::Property::ValueMax(f64::from(told.1)),
+                        gtk::accessible::Property::ValueNow(f64::from(told.2)),
+                    ]);
+                }
             }
             for (pane, x, pane_width) in places {
                 // Never less than the pane needs at its width, for what does not fit to be cut off at the bottom
@@ -617,7 +630,8 @@ impl Split {
     }
 
     /// A divider between the panes while both are on screen: dragged, or moved with Left and Right (Home and End go
-    /// to the limits), it sets the sidebar's width within the least and the most [`Split::new`] was given.
+    /// to the limits), it sets the sidebar's width within the least and the most [`Split::new`] or
+    /// [`Split::set_sidebar_limits`] gave. A screen reader hears the width and the limits.
     pub fn set_resizable(&self, on: bool) {
         let state = &self.state;
         if state.divider.borrow().is_some() == on {
@@ -661,6 +675,7 @@ impl Split {
         divider.add_controller(keys);
         // Last, so that it is drawn over both panes and the pointer finds it there.
         divider.insert_before(&self.widget, gtk::Widget::NONE);
+        self.layout().imp().divider_told.set(None);
         state.divider.replace(Some(divider));
         self.apply();
     }
@@ -681,8 +696,16 @@ impl Split {
         self.layout().imp().sidebar(sidebar, content, self.widget.width())
     }
 
-    /// The sidebar's width, kept within the limits [`Split::new`] was given: a width saved from
-    /// [`Split::sidebar_width`] when the window last closed.
+    /// New limits for the sidebar, in place of those [`Split::new`] was given: for a sidebar that changes what it
+    /// shows, as Notes' does between its folder and note panes and its tree. The width chosen is kept, and is
+    /// within the new limits on screen; [`Split::set_sidebar_width`] after this restores one saved for them.
+    pub fn set_sidebar_limits(&self, sidebar_width: (i32, i32)) {
+        self.layout().imp().sidebar_width.set(sidebar_width);
+        self.widget.queue_resize();
+    }
+
+    /// The sidebar's width, kept within the sidebar's limits: a width saved from [`Split::sidebar_width`] when the
+    /// window last closed.
     pub fn set_sidebar_width(&self, width: i32) {
         let (least, most) = self.layout().imp().sidebar_width.get();
         self.layout()
@@ -690,7 +713,6 @@ impl Split {
             .chosen
             .set(Some(width.clamp(least, most.max(least))));
         self.widget.queue_resize();
-        self.sync_divider();
     }
 
     fn layout(&self) -> SplitLayout {
@@ -713,19 +735,6 @@ impl Split {
         let (least, most) = self.sidebar_limits();
         self.layout().imp().chosen.set(Some(width.clamp(least, most)));
         self.widget.queue_resize();
-        self.sync_divider();
-    }
-
-    /// What a screen reader says of the divider: the sidebar's width and its limits.
-    fn sync_divider(&self) {
-        if let Some(divider) = self.state.divider.borrow().as_ref() {
-            let (least, most) = self.sidebar_limits();
-            divider.update_property(&[
-                gtk::accessible::Property::ValueMin(f64::from(least)),
-                gtk::accessible::Property::ValueMax(f64::from(most)),
-                gtk::accessible::Property::ValueNow(f64::from(self.shown_sidebar_width())),
-            ]);
-        }
     }
 
     /// Puts on screen the panes the state calls for, by their holders' child visibility: a pane taken off still

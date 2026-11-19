@@ -37,8 +37,9 @@ done
 cd "$here/.."
 # Cargo and rustup keep their own homes under the real one.
 export CARGO_HOME=${CARGO_HOME:-$HOME/.cargo} RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}
+# GTK_A11Y=test: what a widget tells a screen reader is kept for the tests to read, and no accessibility bus is sought.
 env -u WAYLAND_DISPLAY -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u GTK_THEME \
   HOME="$root/home" XDG_CONFIG_HOME="$root/config" XDG_STATE_HOME="$root/state" XDG_DATA_HOME="$root/data" \
-  XDG_CACHE_HOME="$root/cache" XDG_RUNTIME_DIR="$root/runtime" GTK_A11Y=none \
+  XDG_CACHE_HOME="$root/cache" XDG_RUNTIME_DIR="$root/runtime" GTK_A11Y=test \
   GDK_BACKEND=broadway BROADWAY_DISPLAY=":$display" \
   cargo test --all-features "$@" -- --ignored

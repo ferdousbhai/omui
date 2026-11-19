@@ -282,7 +282,7 @@ impl Dialog {
 
     /// Whether giving the response closes the dialog; it does unless this turns it off. One that does not runs the
     /// handlers with the dialog still open, for an action on what the dialog shows: Clear in a log, Copy beside a
-    /// code. The close response always closes, from Escape or the close button.
+    /// code. The close response always closes: from its button, Escape or the close button.
     pub fn set_response_closes(&self, id: &str, on: bool) {
         let mut staying = self.inner.staying.borrow_mut();
         staying.retain(|response| response != id);
@@ -497,8 +497,11 @@ impl Dialog {
     }
 
     fn respond(&self, id: &str) {
-        // Closed first, so a handler that presents the next dialog finds the window as it was.
-        if !self.inner.staying.borrow().iter().any(|response| response == id) {
+        // Closed first, so a handler that presents the next dialog finds the window as it was. The close response
+        // closes whatever `set_response_closes` said, from its button as from Escape.
+        let closes = self.inner.close_response.borrow().as_deref() == Some(id)
+            || !self.inner.staying.borrow().iter().any(|response| response == id);
+        if closes {
             self.dismiss();
         }
         self.emit(id);

@@ -262,20 +262,31 @@ fn a_response_can_leave_the_dialog_open() {
         !shell.dialog_open(),
         "Escape closes, even with a close response that would not"
     );
-    assert_eq!(*said.borrow(), ["clear", "close", "clear", "close"]);
+    dialog.present(&content);
+    dialog.click("close");
+    assert!(!shell.dialog_open(), "and so does the close response's own button");
+    assert_eq!(*said.borrow(), ["clear", "close", "clear", "close", "close"]);
 }
 
 fn a_resizable_split_keeps_its_sidebar_within_its_limits() {
+    let lay_out_split = |split: &Split, width| {
+        split.widget.measure(gtk::Orientation::Horizontal, -1);
+        split.widget.allocate(width, 600, -1, None);
+    };
+    // A width restored before the split is first laid out is what a screen reader hears once it is.
+    let restored = Split::new(&gtk::Label::new(None), &gtk::Label::new(None), (240, 360), Some(600));
+    restored.set_resizable(true);
+    restored.set_sidebar_width(280);
+    lay_out_split(&restored, 1200);
+    assert_eq!(divider_says(&restored.widget.last_child().unwrap()), (240, 360, 280));
+
     let sidebar = gtk::Label::new(Some("list"));
     let content = gtk::Label::new(Some("content"));
     let split = Split::new(&sidebar, &content, (240, 360), Some(600));
     split.set_resizable(true);
     let divider = split.widget.last_child().unwrap();
     assert!(divider.has_css_class("om-divider") && divider.is_focusable());
-    let lay_out = |width| {
-        split.widget.measure(gtk::Orientation::Horizontal, -1);
-        split.widget.allocate(width, 600, -1, None);
-    };
+    let lay_out = |width| lay_out_split(&split, width);
     lay_out(1200);
     assert_eq!(split.sidebar_width(), 300, "a quarter until a width is set");
     split.set_sidebar_width(500);
@@ -296,6 +307,19 @@ fn a_resizable_split_keeps_its_sidebar_within_its_limits() {
     lay_out(200);
     assert_eq!(sidebar.width(), 240);
     assert_eq!(split.sidebar_width(), 280, "the width to save is the one chosen");
+    assert_eq!(
+        divider_says(&divider),
+        (240, 240, 240),
+        "a narrower window narrows the limits"
+    );
+    // New limits, for a sidebar that now shows something else: the width chosen is kept within them.
+    split.set_sidebar_limits((300, 400));
+    lay_out(1200);
+    assert_eq!((sidebar.width(), divider_says(&divider)), (300, (300, 400, 300)));
+    split.set_sidebar_width(380);
+    lay_out(1200);
+    assert_eq!(sidebar.width(), 380);
+    split.set_sidebar_limits((240, 360));
     // With the sidebar put away there is no edge to drag.
     split.set_show_sidebar(false);
     assert!(!divider.is_child_visible());
@@ -306,6 +330,30 @@ fn a_resizable_split_keeps_its_sidebar_within_its_limits() {
         split.widget.last_child().as_ref(),
         Some(content.parent().unwrap().upcast_ref())
     );
+}
+
+/// The least, the most and the width the divider tells a screen reader, of a whole number of pixels from 0 to 1000.
+fn divider_says(divider: &gtk::Widget) -> (i32, i32, i32) {
+    use gtk::{ffi, glib::translate::ToGlibPtr};
+    let says = |property, value: i32| {
+        // SAFETY: the property is a double, so one double follows it; the answer is NULL or a new string.
+        let wrong = unsafe {
+            ffi::gtk_test_accessible_check_property(
+                divider.upcast_ref::<gtk::Accessible>().to_glib_none().0,
+                property,
+                f64::from(value),
+            )
+        };
+        // SAFETY: GTK's to free.
+        unsafe { glib::ffi::g_free(wrong.cast()) };
+        wrong.is_null()
+    };
+    let find = |property| (0..=1000).find(|&value| says(property, value)).unwrap_or(-1);
+    (
+        find(ffi::GTK_ACCESSIBLE_PROPERTY_VALUE_MIN),
+        find(ffi::GTK_ACCESSIBLE_PROPERTY_VALUE_MAX),
+        find(ffi::GTK_ACCESSIBLE_PROPERTY_VALUE_NOW),
+    )
 }
 
 fn a_banner_has_an_icon_and_a_button_of_either_kind() {
