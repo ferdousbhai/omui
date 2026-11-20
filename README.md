@@ -11,7 +11,7 @@ theming approach it follows.
 
 ```toml
 [dependencies]
-omui = { git = "https://github.com/ferdousbhai/omui", rev = "<40-hex>" } # v0.5.1
+omui = { git = "https://github.com/ferdousbhai/omui", rev = "<40-hex>" } # v0.5.2
 ```
 
 Building needs `glib-compile-resources` (on Arch it is part of `glib2`).
@@ -326,6 +326,7 @@ omui::qa::attach(&app);
 ```sh
 cargo build --example gallery --features qa
 dev/qa.sh target/debug/examples/gallery dev/qa/gallery.jsonl
+dev/qa.sh target/debug/examples/gallery dev/qa/icons.jsonl
 ```
 
 `dev/qa.sh` runs the app on a broadway display of its own with a private home and no session bus, so no window
@@ -335,8 +336,10 @@ comments. `dev/qa/critical.jsonl` must fail: it has the gallery make GTK log a c
 
 A widget is named by its accessible `role` (GTK's nick: `button`, `toggle-button`, `checkbox`, `switch`, `text-box`,
 `search-box`, `list-item`, `dialog`, `alert`, `separator`, …) and `name`, and optionally `in` an ancestor named the
-same way: `{"role": "dialog", "name": "Rename the folder"}`. Its name is its accessible label, its label, title or
-placeholder, its tooltip, or for a button, row, list item, grid cell, group, dialog or toast any label inside it. It is looked for in every
+same way: `{"role": "dialog", "name": "Rename the folder"}`. Its name is the text of the labels it is labelled by
+(`Relation::LabelledBy`, as the control of `entry_row`, `password_row`, `switch_row` and `combo_row` is by the row's
+title), its accessible label, its label, title or placeholder, its tooltip, or for a button, row, list item, grid
+cell, group, dialog or toast any label inside it. It is looked for in every
 window, a dialog's own modal window too (over a window with no `Shell`). Of several, the innermost on screen is meant; more than one is an error. A command that acts waits up to `timeout_ms` (5000) for its widget to
 be on screen, and every command waits for the window to be drawn after the last.
 
@@ -345,7 +348,7 @@ be on screen, and every command waits for the window to be drawn after the last.
 | `{"do":"click", role, name}` | Clicks a button, or activates a row, switch or other widget as Enter would; fails on one that is hidden, disabled or under a dialog, in its window or a modal window | |
 | `{"do":"focus", role, name}` | Gives it the keyboard | |
 | `{"do":"type", "text":"…"}` | Types the text as key presses, into the widget named if one is | |
-| `{"do":"key", "keys":"<Control>u"}` | Presses a key with its modifiers (GTK accelerator syntax), as a keyboard would | |
+| `{"do":"key", "keys":"<Control>u"}` | Presses a key with its modifiers (GTK accelerator syntax), as a keyboard would: a letter in upper case with Shift held, for `R` or `<Shift>r` alike, and once a window on screen has the keyboard | |
 | `{"do":"action", "name":"win.save", "parameter":"…"}` | Activates a `win.` or `app.` action; the parameter is GVariant text | |
 | `{"do":"set", role, name, "checked":true}` | Sets a switch, check box or toggle button | |
 | `{"do":"select", role, name}` | Selects what it is or is in: a `GtkListBox` row, or an item of a `GtkListView` or `GtkGridView` (`list-item`, `grid-cell`) through the view's selection model, as a click would; fails if that model leaves it unselected (`GtkNoSelection`) | |
@@ -353,12 +356,23 @@ be on screen, and every command waits for the window to be drawn after the last.
 | `{"do":"state"}` | | `size` of the app's window; of all windows the `dialog` on top (its name, or null), the `toasts` showing, the `focus` in the window that has the keyboard |
 | `{"do":"wait", …}` | Waits until each other key equals what `query` (with a role or name) or `state` answers, or a widget is on screen; one that is not there is `"visible": false` | The last answer |
 | `{"do":"resize", "width":560, "height":700}` | Sets the window's size | |
-| `{"do":"shot", "path":"x.png"}` | Writes the window to a PNG through `dev::shot` | |
+| `{"do":"shot", "path":"x.png"}` | Writes the window to a PNG through `dev::shot`, as it is drawn next | |
 | `{"do":"list", role}` | | The `widgets` on screen with a name, as `{role, name}`: for writing a script |
 | `{"do":"quit"}` | Closes the windows and ends the run; a script must end with it | |
 
 Keys reach the app through the broadway display's input, as its web page sends them, so they go through GTK's own
-handling: shortcuts, mnemonics, a dialog holding the window's keys back. `dev/qa.sh` sets `OMUI_QA_INPUT` to it.
+handling: shortcuts, mnemonics, a dialog holding the window's keys back. `dev/qa.sh` sets `OMUI_QA_INPUT` to it. A
+key is sent once a window on screen has the keyboard: when a window closes, broadway gives it back to the one under
+it a moment later, and when the window that had it was only hidden, the topmost window is given it, as a click would.
+A key's release goes to whichever window has the keyboard then, one the key opened too, or to none when the key
+closed its window.
+
+Broadway draws each window as one picture in QA mode (a CSS `filter` on each window, popover and tooltip): GTK 4.24's gtk4-broadwayd
+aborts, its page connected, on a frame that draws anew one icon twice, as a list built again or a resized window does
+(`append_node_ops: assertion failed: (!reused_node->consumed)`), since the images of one icon share one node and
+broadway sends a node it sent before by reference. The pixels are the same. `dev/qa/icons.jsonl` is such a frame, and
+`dev/qa.sh` prints the display's log when the display dies under the app.
+
 GDK's broadway backend warns once a run of a duplicate frame timing (`gdk_frame_timings_submitted()`, domain Gdk)
 when a page answers its frames, as this one does; that warning is let pass while the page is connected.
 

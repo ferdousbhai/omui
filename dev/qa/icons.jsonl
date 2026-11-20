@@ -1,0 +1,17 @@
+# The same icons in several rows, drawn anew: a list rebuilt and the window resized. Without omui's whole-window
+# drawing (qa.rs, `draw_whole`) GTK 4.24's gtk4-broadwayd aborts here (append_node_ops: !reused_node->consumed) as
+# soon as the list is built again with the key page connected, and the run fails with the display gone.
+{"do":"select","role":"list-item","name":"Views"}
+{"do":"focus","role":"button","name":"Rebuild the list"}
+{"do":"wait","role":"label","name":"attachments: built 1"}
+{"do":"click","role":"button","name":"Rebuild the list"}
+{"do":"wait","role":"label","name":"attachments: built 2"}
+{"do":"click","role":"button","name":"Rebuild the list"}
+{"do":"wait","role":"label","name":"attachments: built 3"}
+{"do":"wait","role":"button","name":"Remove receipt.pdf","visible":true}
+{"do":"resize","width":900,"height":700}
+{"do":"wait","size":[900,700]}
+{"do":"key","keys":"space"}
+{"do":"wait","role":"label","name":"attachments: built 4"}
+{"do":"shot","path":"target/qa-icons.png"}
+{"do":"quit"}

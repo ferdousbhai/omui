@@ -58,6 +58,8 @@ env -u WAYLAND_DISPLAY -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u GTK_THEME \
 app_pid=$!
 wait "$app_pid" || status=$?
 app_pid=""
+# A display that died under the app (an assertion of broadwayd's) shows in the app only as its connection lost.
+kill -0 "$broadway_pid" 2>/dev/null || { echo "qa: the broadway display ended:" >&2; cat "$root/broadwayd.log" >&2; }
 
 # Each command beside its answer; `quit`'s answer, or the failure that ended the run, comes last.
 grep -Ev '^[[:space:]]*(#|$)' "$script" | awk -v answers="$root/answers" '

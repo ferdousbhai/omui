@@ -28,6 +28,10 @@ fn with_gtk() {
     a_banner_has_an_icon_and_a_button_of_either_kind();
     #[cfg(feature = "qa")]
     qa_selects_a_list_views_item_through_its_model();
+    #[cfg(feature = "qa")]
+    qa_names_a_rows_control_by_its_title();
+    #[cfg(feature = "qa")]
+    qa_sends_the_key_a_keyboard_would();
     // Last: the theme styles every widget made after it.
     an_app_provider_at_app_priority_is_above_the_reset();
 }
@@ -422,6 +426,46 @@ fn qa_selects_a_list_views_item_through_its_model() {
     let error = crate::qa::select(label(&unselectable, "Sent").upcast_ref()).unwrap_err();
     assert!(error.contains("does not select it"), "{error}");
     window.destroy();
+}
+
+/// A row's control is labelled by the row's title, which a screen reader says and QA finds it by, and follows a new
+/// title.
+#[cfg(feature = "qa")]
+fn qa_names_a_rows_control_by_its_title() {
+    let (entry_row, entry) = crate::entry_row("Name", "Ada");
+    let (password_row, password) = crate::password_row("Secret access key");
+    let (switch_row, switch) = crate::switch_row("Sync settings too", "Themes and key bindings", true);
+    let often = gtk::StringList::new(&["Hourly", "Daily"]);
+    let (combo_row, dropdown) = crate::combo_row("Fetch", "", &often, 0);
+    let group = crate::Group::new("", "");
+    for row in [&entry_row, &password_row, &switch_row, &combo_row] {
+        group.add(&row.widget);
+    }
+    let window = gtk::Window::builder().child(&group.widget).build();
+    let first = |widget: &gtk::Widget| crate::qa::names(widget).into_iter().next();
+    assert_eq!(first(entry.upcast_ref()).as_deref(), Some("Name"));
+    assert_eq!(first(password.upcast_ref()).as_deref(), Some("Secret access key"));
+    assert_eq!(first(switch.upcast_ref()).as_deref(), Some("Sync settings too"));
+    assert_eq!(first(dropdown.upcast_ref()).as_deref(), Some("Fetch"));
+    entry_row.set_title("Full name");
+    assert_eq!(first(entry.upcast_ref()).as_deref(), Some("Full name"));
+    window.destroy();
+}
+
+/// QA's `key` names a letter as GTK's accelerators do, and sends the one a keyboard would: upper case with Shift.
+#[cfg(feature = "qa")]
+fn qa_sends_the_key_a_keyboard_would() {
+    use gtk::gdk::{Key, ModifierType};
+    let key = crate::qa::keyboard_key;
+    let shift = ModifierType::SHIFT_MASK;
+    assert_eq!(key("R"), Ok((Key::R, shift)));
+    assert_eq!(key("<Shift>r"), Ok((Key::R, shift)));
+    assert_eq!(key("<Shift>R"), Ok((Key::R, shift)));
+    assert_eq!(key("r"), Ok((Key::r, ModifierType::empty())));
+    assert_eq!(key("<Control>u"), Ok((Key::u, ModifierType::CONTROL_MASK)));
+    assert_eq!(key("question"), Ok((Key::question, ModifierType::empty())));
+    assert_eq!(key("<Shift>Tab"), Ok((Key::Tab, shift)));
+    assert!(key("NoSuchKey").is_err());
 }
 
 fn an_app_provider_at_app_priority_is_above_the_reset() {

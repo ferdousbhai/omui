@@ -298,6 +298,32 @@ fn shortcuts(app: &gtk::Application, window: &gtk::ApplicationWindow, content: &
         })),
     ));
     window.add_controller(refresh);
+    // Two keys as a mail app has them: `?` opens a window of its own, which Escape closes, and Shift+R, told apart from
+    // r by the key's own symbol, reloads. dev/qa/gallery.jsonl presses both.
+    let keys = gtk::EventControllerKey::new();
+    keys.connect_key_pressed({
+        let shell = Rc::downgrade(shell);
+        move |keys, key, _, _| {
+            let Some(window) = keys.widget().and_downcast::<gtk::Window>() else {
+                return glib::Propagation::Proceed;
+            };
+            if omui::dialog_open(&window) {
+                return glib::Propagation::Proceed;
+            }
+            match key {
+                gtk::gdk::Key::question => keys_window(&window),
+                gtk::gdk::Key::R => {
+                    trace("shortcut: reload");
+                    if let Some(shell) = shell.upgrade() {
+                        shell.toast("Reloaded");
+                    }
+                }
+                _ => return glib::Propagation::Proceed,
+            }
+            glib::Propagation::Stop
+        }
+    });
+    window.add_controller(keys);
     // For dev/qa.sh's proof that a GLib critical fails a QA run: a real one, from GTK, as an app's mistake would log.
     #[cfg(feature = "qa")]
     {
@@ -305,6 +331,31 @@ fn shortcuts(app: &gtk::Application, window: &gtk::ApplicationWindow, content: &
         critical.connect_activate(|_, _| gtk::Box::default().remove(&gtk::Label::new(None)));
         window.add_action(&critical);
     }
+}
+
+/// The window `?` opens over `parent`, as an app's list of its keys is; Escape closes it.
+fn keys_window(parent: &gtk::Window) {
+    let list = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .css_classes(["gallery-page"])
+        .build();
+    for line in ["?  This window", "F5  Refresh", "Shift+R  Reload", "Ctrl+U  Upload"] {
+        list.append(&omui::label(line, ""));
+    }
+    let window = gtk::Window::builder()
+        .title("Keyboard shortcuts")
+        .transient_for(parent)
+        .default_width(320)
+        .child(&list)
+        .build();
+    let close = gtk::ShortcutController::new();
+    close.add_shortcut(gtk::Shortcut::new(
+        gtk::ShortcutTrigger::parse_string("Escape"),
+        Some(gtk::NamedAction::new("window.close")),
+    ));
+    window.add_controller(close);
+    window.present();
 }
 
 /// What has the keyboard, for the trace: a button's label or tooltip, else what kind of widget it is and the first
@@ -1202,6 +1253,44 @@ fn menus(openers: &mut Openers) -> gtk::ScrolledWindow {
 fn views() -> gtk::ScrolledWindow {
     let (scroll, column) = page();
     column.append(&omui::label("Views", "page-title"));
+
+    // The same icons in every row, built again as a refresh would: an image, a check box's CSS icon and an icon
+    // button's, as a mail list's paperclips and a task list's checks are. dev/qa/icons.jsonl rebuilds it.
+    column.append(&omui::label("Attachments", "section-title"));
+    let attachments = gtk::ListBox::builder()
+        .hexpand(true)
+        .selection_mode(gtk::SelectionMode::None)
+        .build();
+    let fill = {
+        let attachments = attachments.downgrade();
+        let built = Cell::new(0);
+        move || {
+            let Some(attachments) = attachments.upgrade() else {
+                return;
+            };
+            built.set(built.get() + 1);
+            omui::clear(&attachments);
+            for file in ["invoice.pdf", "receipt.pdf", "contract.pdf"] {
+                let line = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+                line.append(&gtk::CheckButton::builder().active(true).build());
+                line.append(&omui::icon(name::ATTACH));
+                line.append(&omui::label(file, "note"));
+                let remove = omui::icon_button(name::DELETE, &format!("Remove {file}"));
+                remove.set_hexpand(true);
+                remove.set_halign(gtk::Align::End);
+                line.append(&remove);
+                attachments.append(&line);
+            }
+            attachments.append(&omui::label(&format!("attachments: built {}", built.get()), "note"));
+        }
+    };
+    fill();
+    let rebuild = gtk::Button::builder()
+        .label("Rebuild the list")
+        .valign(gtk::Align::Start)
+        .build();
+    rebuild.connect_clicked(move |_| fill());
+    column.append(&row(&[attachments.upcast_ref(), rebuild.upcast_ref()]));
 
     let notebook = gtk::Notebook::builder().hexpand(true).build();
     for tab in ["Inbox", "Sent", "Archive"] {

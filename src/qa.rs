@@ -56,7 +56,10 @@ pub fn attach(app: &gtk::Application) {
     if !wanted() {
         return;
     }
-    app.connect_startup(|_| require_hidden_display());
+    app.connect_startup(|_| {
+        require_hidden_display();
+        draw_whole();
+    });
     let started = Rc::new(Cell::new(false));
     for signal in ["activate", "open"] {
         let started = started.clone();
@@ -163,6 +166,25 @@ fn require_hidden_display() {
     }
 }
 
+/// Has broadway draw each window as one picture, so that the page that presses keys here cannot make it abort.
+///
+/// GTK 4.24's broadway renderer sends a node it sent the frame before by reference to it (`BROADWAY_NODE_REUSE`, by
+/// the node's pointer), and does so for each place the node is drawn. An SVG paintable keeps the node it drew last
+/// and draws that again, and every image of one icon, from the icon theme or a CSS `-gtk-icon-source`, shares one
+/// paintable: the same icon twice in widgets drawn anew (a list rebuilt, a window resized) refers to one old node
+/// twice, and gtk4-broadwayd, building the frame for its page, asserts `!reused_node->consumed` and aborts.
+///
+/// A color matrix node is one that broadway's renderer rasterises whole, with all under it, as a texture: with one
+/// around each window, no node in it is sent alone, by reference or otherwise. `brightness(1)` changes no colour; the
+/// pixels are cairo's, as broadway's were for an icon, and as `shot`'s are.
+fn draw_whole() {
+    let Some(display) = gdk::Display::default() else { return };
+    let provider = gtk::CssProvider::new();
+    provider.load_from_string("window, popover, tooltip { filter: brightness(1); }");
+    // Above every layer omui and the app add, the reset among them, which would unset it.
+    gtk::style_context_add_provider_for_display(&display, &provider, u32::MAX);
+}
+
 /// Starts reading commands, for the window the app has just opened.
 fn start(app: &gtk::Application) {
     let Some(window) = app.active_window() else {
@@ -199,7 +221,7 @@ fn start(app: &gtk::Application) {
                 break;
             }
             // Each command finds the window as it is drawn, laid out after the last, as a person would.
-            let result = match (painted(&qa.window).await, command) {
+            let result = match (painted(&qa.window, || ()).await, command) {
                 (Err(e), _) | (_, Err(e)) => Err(e),
                 (_, Ok(Value::Object(command))) => qa.run(&verb, &command).await,
                 (_, Ok(_)) => Err("a command is a JSON object".to_owned()),
@@ -213,8 +235,10 @@ fn start(app: &gtk::Application) {
     });
 }
 
-/// Waits until `window` has been drawn once more: until then GTK has no picture of what has changed in it.
-async fn painted(window: &gtk::Window) -> Result<(), String> {
+/// Waits until `window` has been drawn once more, and runs `then` as it has been: until then GTK has no picture of
+/// what has changed in it. A moment later its picture may be gone again, as whatever asks for the next frame (a
+/// relayout, an animation) drops it: what reads the picture (`shot`) does so here.
+async fn painted<T: 'static>(window: &gtk::Window, then: impl FnOnce() -> T + 'static) -> Result<T, String> {
     let start = Instant::now();
     let stopped = || (start.elapsed() > TIMEOUT).then(|| "the window is not being drawn".to_owned());
     let clock = loop {
@@ -224,17 +248,26 @@ async fn painted(window: &gtk::Window) -> Result<(), String> {
         }
         glib::timeout_future(Duration::from_millis(10)).await;
     };
-    let done = Rc::new(Cell::new(false));
+    let done = Rc::new(RefCell::new(None));
+    let then = RefCell::new(Some(then));
     let handler = clock.connect_after_paint({
         let done = done.clone();
-        move |_| done.set(true)
+        move |_| {
+            if let Some(then) = then.take() {
+                done.replace(Some(then()));
+            }
+        }
     });
     window.queue_draw();
-    let mut result = Ok(());
-    while !done.get() && result.is_ok() {
-        result = stopped().map_or(Ok(()), Err);
+    let result = loop {
+        if let Some(value) = done.take() {
+            break Ok(value);
+        }
+        if let Some(e) = stopped() {
+            break Err(e);
+        }
         glib::timeout_future(Duration::from_millis(10)).await;
-    }
+    };
     clock.disconnect(handler);
     result
 }
@@ -346,7 +379,7 @@ impl Qa {
                     .get("keys")
                     .and_then(Value::as_str)
                     .ok_or("`key` needs `keys`, as \"<Control>u\"")?;
-                let (key, modifiers) = gtk::accelerator_parse(keys).ok_or_else(|| format!("no such key: {keys}"))?;
+                let (key, modifiers) = keyboard_key(keys)?;
                 self.press(key, modifiers).await?;
                 Ok(Map::new())
             }
@@ -406,7 +439,8 @@ impl Qa {
                     .get("path")
                     .and_then(Value::as_str)
                     .ok_or("`shot` needs `path`")?;
-                crate::dev::shot(&self.window, std::path::Path::new(path))?;
+                let (window, path) = (self.window.clone(), std::path::PathBuf::from(path));
+                painted(&self.window, move || crate::dev::shot(&window, &path)).await??;
                 Ok(Map::new())
             }
             "list" => {
@@ -532,6 +566,9 @@ impl Qa {
     }
 
     /// Presses and releases `key` on the broadway display, as a keyboard would, and waits until the app has had it.
+    /// A key that opens a window (a shortcuts window, an editor) has its release go to that window, and one that
+    /// closes its window has its release go to none: a release is counted on whatever window it reaches, and waited
+    /// for only while a window on screen has the keyboard.
     async fn press(&self, key: gdk::Key, modifiers: gdk::ModifierType) -> Result<(), String> {
         if key == gdk::Key::VoidSymbol {
             return Err("that key has no key symbol".to_owned());
@@ -562,14 +599,29 @@ impl Qa {
         }
         // One at a time, each once the app has had the last, as fingers are slower than the app.
         for (event, key, state) in events {
+            if event == KEY_PRESS {
+                self.keyboard_ready().await?;
+            }
+            // A window the last key opened counts too.
+            for window in self.roots() {
+                if !self.watching(&window) {
+                    self.watch(&window);
+                }
+            }
             let before = self.keys_seen.get();
             let words = [event, 0, 0, key.into_glib() as i32, state.bits() as i32];
             send(&mut input.lock().unwrap_or_else(|e| e.into_inner()), &words)
                 .map_err(|e| format!("broadway input: {e}"))?;
             let start = Instant::now();
             while self.keys_seen.get() == before {
-                if start.elapsed() > Duration::from_secs(2) {
+                let waited = start.elapsed() > Duration::from_secs(2);
+                if event == KEY_PRESS && waited {
                     return Err("the key never reached a window".to_owned());
+                }
+                // A release lost with the window its press closed is lost as a keyboard's would be: the press is what
+                // the app acts on.
+                if event == KEY_RELEASE && (waited || !self.has_keyboard()) {
+                    break;
                 }
                 glib::timeout_future(Duration::from_millis(5)).await;
             }
@@ -577,6 +629,41 @@ impl Qa {
         // What the key started (a dialog closing, a page going back) has run by the next turn of the loop.
         glib::timeout_future(Duration::ZERO).await;
         Ok(())
+    }
+
+    /// Whether a window on screen has the keyboard.
+    fn has_keyboard(&self) -> bool {
+        self.roots()
+            .iter()
+            .any(|window| window.is_active() && window.is_mapped())
+    }
+
+    /// Waits until a window on screen has the keyboard, so that a key goes to it: when a window closes, broadway gives
+    /// the keyboard back to the window under it a moment later (a key sent sooner goes to the closed one), and to none
+    /// when the window was only hidden. After a while the topmost window on screen is given it, as a click would.
+    async fn keyboard_ready(&self) -> Result<(), String> {
+        let start = Instant::now();
+        let mut asked = false;
+        while !self.has_keyboard() {
+            if !asked && start.elapsed() > Duration::from_millis(500) {
+                if let Some(top) = self.roots().into_iter().find(|window| window.is_mapped()) {
+                    top.present();
+                }
+                asked = true;
+            }
+            if start.elapsed() > TIMEOUT {
+                return Err("no window on screen has the keyboard".to_owned());
+            }
+            glib::timeout_future(Duration::from_millis(10)).await;
+        }
+        Ok(())
+    }
+
+    fn watching(&self, window: &gtk::Window) -> bool {
+        self.watched
+            .borrow()
+            .iter()
+            .any(|(w, _)| w.upgrade().as_ref() == Some(window))
     }
 
     /// Counts the key presses and releases `window` has, before any of its widgets sees them: its counter is put
@@ -731,10 +818,11 @@ const NAMED_BY_CONTENT: &[gtk::AccessibleRole] = &[
     gtk::AccessibleRole::ToggleButton,
 ];
 
-/// Every name `widget` answers to, the one a screen reader would say first: its accessible label, its own label,
-/// title or placeholder, its tooltip, and for a role named by its content the text of each label inside it.
-fn names(widget: &gtk::Widget) -> Vec<String> {
-    let mut names = Vec::new();
+/// Every name `widget` answers to, the one a screen reader would say first: the text of the labels it is labelled by,
+/// its accessible label, its own label, title or placeholder, its tooltip, and for a role named by its content the
+/// text of each label inside it.
+pub(crate) fn names(widget: &gtk::Widget) -> Vec<String> {
+    let mut names = labelled_by(widget);
     names.extend(accessible_label(widget));
     if let Some(window) = widget.downcast_ref::<gtk::Window>() {
         names.extend(window.title().map(Into::into));
@@ -804,6 +892,37 @@ fn accessible_label(widget: &gtk::Widget) -> Option<String> {
     };
     // An unset label is "undefined"; a label the app set to that word is lost with it, which no app does.
     found.filter(|found| found.as_str() != "undefined").map(Into::into)
+}
+
+/// The text of the labels an app named `widget` by (`Relation::LabelledBy`), as omui's rows name their control by
+/// their title: a screen reader says them before any other name. GTK has no getter for it either; its test API, asked
+/// whether the relation is empty, answers with each widget in it as `GtkLabel<0x…>`, found here by that address among
+/// the widgets of `widget`'s window.
+fn labelled_by(widget: &gtk::Widget) -> Vec<String> {
+    // SAFETY: the relation is a list of references, so a NULL-terminated list of them follows it, here an empty one;
+    // the answer is a new string or NULL.
+    let found: Option<glib::GString> = unsafe {
+        from_glib_full(gtk::ffi::gtk_test_accessible_check_relation(
+            widget.upcast_ref::<gtk::Accessible>().to_glib_none().0,
+            gtk::ffi::GTK_ACCESSIBLE_RELATION_LABELLED_BY,
+            std::ptr::null::<gtk::ffi::GtkAccessible>(),
+        ))
+    };
+    let (Some(found), Some(root)) = (found, widget.root()) else {
+        return Vec::new();
+    };
+    let addresses: Vec<&str> = found
+        .split('>')
+        .filter_map(|reference| reference.split_once('<').map(|(_, address)| address))
+        .collect();
+    let mut labels = vec![None; addresses.len()];
+    walk(root.upcast_ref(), &mut |other| {
+        let address = format!("{:p}", other.as_ptr());
+        if let Some(at) = addresses.iter().position(|a| *a == address) {
+            labels[at] = own_label(other);
+        }
+    });
+    labels.into_iter().flatten().collect()
 }
 
 fn role(widget: &gtk::Widget) -> String {
@@ -945,6 +1064,19 @@ fn is_over(window: &gtk::Window, under: &gtk::Window) -> bool {
         parent = window.transient_for();
     }
     false
+}
+
+/// The key and the modifiers `keys` names (GTK accelerator syntax), as a keyboard sends them. GTK's parser gives a
+/// letter in lower case, so that "R" and "<Shift>R" are r; a keyboard sends the letter it types, upper case with
+/// Shift held.
+pub(crate) fn keyboard_key(keys: &str) -> Result<(gdk::Key, gdk::ModifierType), String> {
+    let (key, mut modifiers) = gtk::accelerator_parse(keys).ok_or_else(|| format!("no such key: {keys}"))?;
+    let named = keys.rsplit('>').next().and_then(gdk::Key::from_name);
+    if named.is_some_and(|named| named != named.to_lower()) {
+        modifiers |= gdk::ModifierType::SHIFT_MASK;
+    }
+    let shifted = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
+    Ok((if shifted { key.to_upper() } else { key }, modifiers))
 }
 
 /// broadway's numbers for what its page sends (`BROADWAY_EVENT_*`) and what it is sent (`BROADWAY_OP_*`).

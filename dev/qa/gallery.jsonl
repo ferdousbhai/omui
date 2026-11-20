@@ -30,6 +30,15 @@
 {"do":"key","keys":"Escape"}
 {"do":"wait","dialog":null}
 
+# 0.5.2's keys: `?` opens a window of its own, which has the key's release, and Escape closes it, whose release goes
+# to no window; the next key goes to the window under it. Shift+R is the upper-case R a keyboard sends.
+{"do":"key","keys":"question"}
+{"do":"wait","role":"window","name":"Keyboard shortcuts","visible":true}
+{"do":"key","keys":"Escape"}
+{"do":"wait","role":"window","name":"Keyboard shortcuts","visible":false}
+{"do":"key","keys":"<Shift>R"}
+{"do":"wait","role":"alert","name":"Reloaded","visible":true}
+
 # 0.5's banners, then toasts: three at most, and an Undo that makes room for the fourth.
 {"do":"select","role":"list-item","name":"States"}
 {"do":"wait","role":"button","name":"Clone…","visible":true,"sensitive":false}
@@ -49,6 +58,14 @@
 {"do":"select","role":"label","name":"Lighthouse"}
 {"do":"wait","role":"grid-cell","name":"Lighthouse","selected":true}
 {"do":"wait","role":"grid-cell","name":"Pier","selected":false}
+
+# 0.5.2: a row's control goes by the row's title, which labels it for a screen reader.
+{"do":"select","role":"list-item","name":"Rows"}
+{"do":"type","role":"text-box","name":"Email","text":"ada@example.org"}
+{"do":"wait","role":"text-box","name":"Email","text":"ada@example.org"}
+{"do":"set","role":"switch","name":"Metered connections","checked":true}
+{"do":"wait","role":"switch","name":"Metered connections","checked":true}
+{"do":"wait","role":"combo-box","name":"Fetch","visible":true}
 
 # Nav: a page pushed, and Escape back.
 {"do":"select","role":"list-item","name":"Pages"}
@@ -93,6 +110,10 @@
 {"do":"click","role":"button","name":"Delete the event…"}
 {"do":"wait","dialog":"Delete this event?"}
 {"do":"click","role":"button","name":"Delete","in":{"role":"dialog","name":"Delete this event?"}}
-{"do":"wait","dialog":null}
 {"do":"wait","role":"label","name":"deleted"}
+# A key just after: it waits until the editor window has the keyboard back, and its button asks again.
+{"do":"key","keys":"space"}
+{"do":"wait","dialog":"Delete this event?"}
+{"do":"key","keys":"Escape"}
+{"do":"wait","dialog":null}
 {"do":"quit"}
