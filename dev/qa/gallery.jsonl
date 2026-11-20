@@ -82,6 +82,8 @@
 {"do":"wait","role":"combo-box","name":"Fetch","text":"Every hour"}
 {"do":"click","role":"combo-box","name":"Fetch"}
 {"do":"wait","role":"list-item","name":"Every day","visible":true}
+# 0.5.6: a picture has the open list in it.
+{"do":"shot","path":"target/qa-gallery-dropdown.png"}
 {"do":"click","role":"list-item","name":"Every day"}
 {"do":"wait","role":"combo-box","name":"Fetch","text":"Every day"}
 # 0.5.5: a number by a range, where the font says what it is exactly.

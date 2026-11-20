@@ -24,6 +24,7 @@ fn with_gtk() {
     a_dialog_holds_back_the_windows_shortcuts_until_it_closes();
     a_dialog_with_text_has_a_width_of_its_own();
     a_response_can_leave_the_dialog_open();
+    a_response_turned_off_hands_the_keyboard_on();
     a_resizable_split_keeps_its_sidebar_within_its_limits();
     a_banner_has_an_icon_and_a_button_of_either_kind();
     #[cfg(feature = "qa")]
@@ -234,6 +235,32 @@ fn a_dialog_with_text_has_a_width_of_its_own() {
         natural_width(&bare).1 < 100,
         "a dialog of the app's widget alone is as wide as the widget"
     );
+}
+
+fn a_response_turned_off_hands_the_keyboard_on() {
+    let window = gtk::Window::new();
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let _shell = Shell::new(&window, &content);
+    let dialog = Dialog::new(Some("Rename"), None);
+    let entry = gtk::Entry::new();
+    dialog.set_extra_child(Some(entry.upcast_ref()));
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("save", "Save");
+    window.present();
+    dialog.present(&content);
+    let focus = || gtk::prelude::RootExt::focus(&window);
+    assert!(dialog.focus("save"));
+    assert!(
+        focus().is_some_and(|on| on.is::<gtk::Button>()),
+        "Save has the keyboard"
+    );
+    dialog.set_response_enabled("save", false);
+    let now = focus().expect("the keyboard is somewhere at once, with no turn of the main loop");
+    assert!(
+        now.is_ancestor(&entry),
+        "on the field, where the dialog puts it: {now:?}"
+    );
+    window.destroy();
 }
 
 fn a_response_can_leave_the_dialog_open() {

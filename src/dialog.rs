@@ -276,7 +276,13 @@ impl Dialog {
     /// A disabled response cannot be given, by its button or by Enter: for input that is not valid yet.
     pub fn set_response_enabled(&self, id: &str, on: bool) {
         if let Some(button) = self.button(id) {
+            // Turned off with the keyboard on it, the keyboard goes on at once to where the dialog would put it. GTK
+            // only takes it away, and it would be back in the dialog a moment later, on whatever comes first.
+            let had_focus = !on && button.is_focus();
             button.set_sensitive(on);
+            if had_focus {
+                self.take_focus();
+            }
         }
     }
 
@@ -473,6 +479,12 @@ impl Dialog {
     #[cfg(test)]
     pub(crate) fn click(&self, id: &str) {
         self.button(id).expect("a response that was added").emit_clicked();
+    }
+
+    /// Puts the keyboard on the response's button, as Tab would.
+    #[cfg(test)]
+    pub(crate) fn focus(&self, id: &str) -> bool {
+        self.button(id).expect("a response that was added").grab_focus()
     }
 
     fn button(&self, id: &str) -> Option<gtk::Button> {
