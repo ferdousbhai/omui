@@ -47,6 +47,12 @@ const PAGE_FRAMES: &[&str] = &[
     "gdk_frame_timings_submitted() called on submitted frame.",
 ];
 
+/// What GTK says (domain Gtk) of a turning spinner on the same display, now and then and more under load: its SVG
+/// animation's own time was some microseconds ahead of the frame time it was handed (`gtk_svg_advance`, GTK 4.24).
+/// Seen only here, where the page's answers time the frames; the spinner turns on and the app is not at fault, so
+/// it is let pass, like the frame warnings, while the page is connected. Why GTK's times disagree is not established.
+const PAGE_ANIMATION: &str = "gtk_svg_advance: time went backward";
+
 /// How long a command waits for its widget, or `wait` for its condition, unless it gives `timeout_ms`.
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -147,7 +153,12 @@ fn record(level: glib::LogLevel, fields: &[glib::LogField<'_>]) -> glib::LogWrit
     };
     let message = field("MESSAGE");
     let known = NO_A11Y_BUS.iter().any(|known| message.starts_with(known))
-        || (field("GLIB_DOMAIN") == "Gdk" && PAGE_FRAMES.contains(&message) && matches!(INPUT.get(), Some(Ok(_))));
+        || (matches!(INPUT.get(), Some(Ok(_)))
+            && match field("GLIB_DOMAIN") {
+                "Gdk" => PAGE_FRAMES.contains(&message),
+                "Gtk" => message.starts_with(PAGE_ANIMATION),
+                _ => false,
+            });
     if let Some(kind) = kind.filter(|_| !known) {
         let line = format!("{}-{kind}: {message}", field("GLIB_DOMAIN"));
         LOGGED.lock().unwrap_or_else(|e| e.into_inner()).push(line);

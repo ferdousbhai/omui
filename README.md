@@ -375,7 +375,8 @@ broadway sends a node it sent before by reference. The pixels are the same. `dev
 
 GDK's broadway backend warns once a run of a duplicate frame timing, and once of a frame submitted twice (a popover
 shares its window's frame clock), when a page answers its frames, as this one does (`gdk_frame_timings_submitted()`,
-domain Gdk); those warnings are let pass while the page is connected.
+domain Gdk); those warnings are let pass while the page is connected. So is GTK's warning that a spinner's
+animation was handed a frame time before its own (`gtk_svg_advance: time went backward`, domain Gtk).
 
 ## License
 
