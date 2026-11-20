@@ -342,6 +342,10 @@ impl Qa {
             "click" => {
                 let widget = self.wait_for(target.as_ref(), timeout).await?;
                 clickable(&widget)?;
+                if let Some(chosen) = choose(&widget) {
+                    chosen?;
+                    return Ok(Map::new());
+                }
                 // A menu button or a drop-down is the button inside it, under the pointer.
                 let mut pressed = widget.clone();
                 let mut child = widget.first_child();
@@ -1010,6 +1014,12 @@ fn properties(widget: &gtk::Widget) -> Map<String, Value> {
     } else if let Some(view) = widget.downcast_ref::<gtk::TextView>() {
         let buffer = view.buffer();
         Some(buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).into())
+    } else if let Some(dropdown) = widget.downcast_ref::<gtk::DropDown>() {
+        // What it shows as chosen, where its items are strings.
+        dropdown
+            .selected_item()
+            .and_downcast::<gtk::StringObject>()
+            .map(|chosen| chosen.string().into())
     } else {
         own_label(widget)
     };
@@ -1075,6 +1085,29 @@ pub(crate) fn select(widget: &gtk::Widget) -> Result<(), String> {
         "{} is in no list row, nor an item of a list or grid view",
         describe(widget)
     ))
+}
+
+/// A click on an item of a view that takes one click for a choice (a drop-down's list): the item is selected, then
+/// activated at the place its model now has selected, which is how the view's own click finds it. `None` for any
+/// other widget.
+fn choose(widget: &gtk::Widget) -> Option<Result<(), String>> {
+    let view = widget.parent().filter(|_| view_item(widget))?;
+    let (model, one_click) = match view.downcast_ref::<gtk::ListView>() {
+        Some(list) => (list.model(), list.is_single_click_activate()),
+        None => {
+            let grid = view.downcast_ref::<gtk::GridView>()?;
+            (grid.model(), grid.is_single_click_activate())
+        }
+    };
+    if !one_click {
+        return None;
+    }
+    Some(select(widget).and_then(|()| {
+        let selected = model.map(|model| model.selection()).filter(|chosen| !chosen.is_empty());
+        let place = selected.ok_or_else(|| format!("{} has no place in its view's model", describe(widget)))?;
+        view.activate_action("list.activate-item", Some(&place.minimum().to_variant()))
+            .map_err(|e| format!("{} cannot be activated: {e}", describe(widget)))
+    }))
 }
 
 /// Whether `widget` is an item of a list or grid view: one of the widgets the view makes for its model's items.

@@ -345,14 +345,14 @@ be on screen, and every command waits for the window to be drawn after the last.
 
 | Command | Does | Answers |
 |---|---|---|
-| `{"do":"click", role, name}` | Clicks a button (a menu button or drop-down on the button inside it, so that its menu opens at once), or activates a row, switch or other widget as Enter would; fails on one that is hidden, disabled or under a dialog, in its window or a modal window | |
+| `{"do":"click", role, name}` | Clicks a button (a menu button or drop-down on the button inside it, so that its menu opens at once), chooses an item of a list that takes one click for a choice (a drop-down's), or activates a row, switch or other widget as Enter would; fails on one that is hidden, disabled or under a dialog, in its window or a modal window | |
 | `{"do":"focus", role, name}` | Gives it the keyboard | |
 | `{"do":"type", "text":"…"}` | Types the text as key presses, into the widget named if one is | |
 | `{"do":"key", "keys":"<Control>u"}` | Presses a key with its modifiers (GTK accelerator syntax), as a keyboard would: a letter in upper case with Shift held, for `R` or `<Shift>r` alike and with other modifiers too (`<Control>U` is Ctrl+Shift+U, where GTK reads Ctrl+u), and once a window on screen has the keyboard | |
 | `{"do":"action", "name":"win.save", "parameter":"…"}` | Activates a `win.` or `app.` action; the parameter is GVariant text | |
 | `{"do":"set", role, name, "checked":true}` | Sets a switch, check box or toggle button | |
 | `{"do":"select", role, name}` | Selects what it is or is in: a `GtkListBox` row, or an item of a `GtkListView` or `GtkGridView` (`list-item`, `grid-cell`) through the view's selection model, as a click would; fails if that model leaves it unselected (`GtkNoSelection`) | |
-| `{"do":"query", role, name}` | | `role` `name` `visible` `sensitive` `focused` `text` `checked` `selected` (list box rows, view items) `width` `height` |
+| `{"do":"query", role, name}` | | `role` `name` `visible` `sensitive` `focused` `text` (a drop-down's: the string it shows as chosen) `checked` `selected` (list box rows, view items) `width` `height` |
 | `{"do":"state"}` | | `size` of the app's window; of all windows the `dialog` on top (its name, or null), the `toasts` showing, the `focus` in the window that has the keyboard (a drop-down or menu button for the button inside it, as GTK names that button) |
 | `{"do":"wait", …}` | Waits until each other key equals what `query` (with a role or name) or `state` answers, or a widget is on screen; one that is not there is `"visible": false` | The last answer |
 | `{"do":"resize", "width":560, "height":700}` | Sets the window's size | |

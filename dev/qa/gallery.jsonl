@@ -78,6 +78,12 @@
 # The keyboard on a drop-down is on its button, which GTK names by the drop-down.
 {"do":"focus","role":"combo-box","name":"Fetch"}
 {"do":"wait","focus":{"role":"combo-box","name":"Fetch"}}
+# 0.5.4: a click on an item of its list chooses it, and the drop-down's text is what it shows as chosen.
+{"do":"wait","role":"combo-box","name":"Fetch","text":"Every hour"}
+{"do":"click","role":"combo-box","name":"Fetch"}
+{"do":"wait","role":"list-item","name":"Every day","visible":true}
+{"do":"click","role":"list-item","name":"Every day"}
+{"do":"wait","role":"combo-box","name":"Fetch","text":"Every day"}
 
 # Nav: a page pushed, and Escape back.
 {"do":"select","role":"list-item","name":"Pages"}
