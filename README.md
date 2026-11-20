@@ -356,7 +356,7 @@ be on screen, and every command waits for the window to be drawn after the last.
 | `{"do":"state"}` | | `size` of the app's window; of all windows the `dialog` on top (its name, or null), the `toasts` showing, the `focus` in the window that has the keyboard (a drop-down or menu button for the button inside it, as GTK names that button) |
 | `{"do":"wait", …}` | Waits until each other key equals what `query` (with a role or name) or `state` answers (a number may be asked for as a range, `"height": {"min": 30, "max": 60}`, with either bound alone too), or a widget is on screen; one that is not there is `"visible": false` | The last answer |
 | `{"do":"resize", "width":560, "height":700}` | Sets the window's size | |
-| `{"do":"shot", "path":"x.png"}` | Writes the window to a PNG through `dev::shot`, as it is drawn next, with the menus and lists open in it | |
+| `{"do":"shot", "path":"x.png"}` | Writes the window to a PNG through `dev::shot`, as it is drawn next, with the menus and lists open in it; a spinner on screen is first given the 0.6 s it takes to fade in | |
 | `{"do":"list", role}` | | The `widgets` on screen with a name, as `{role, name}`: for writing a script |
 | `{"do":"quit"}` | Closes the windows and ends the run; a script must end with it | |
 

@@ -593,7 +593,9 @@ button.sidebar-footer:hover { background: alpha(@om_text, 0.06); color: @om_text
 .om-split > separator.om-divider:hover, .om-split > separator.om-divider.dragging,
 .om-split > separator.om-divider:focus-visible {
   background-image: linear-gradient(@om_accent, @om_accent);
-  background-position: center;
+  /* Over the sidebar's border and the pixel after it. Centred, two pixels in the divider's seven would lie across
+     three, the outer two half drawn. */
+  background-position: 2px 0;
   background-repeat: no-repeat;
   background-size: 2px 100%;
 }

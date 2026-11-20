@@ -9,6 +9,7 @@ use gtk::{gdk, graphene, prelude::*};
 /// compositor screenshot. The widget must be realized and laid out. The popovers open in it (a menu, a drop-down's
 /// list) are drawn over it where they are, as far as they are inside it: each is a surface of its own, which the
 /// widget's own picture leaves out.
+/// A spinner that has just come on screen is not in the picture yet: GTK fades it in from nothing over half a second.
 pub fn shot(widget: &impl IsA<gtk::Widget>, path: &Path) -> Result<(), String> {
     let widget = widget.as_ref();
     let (width, height) = (widget.width() as f32, widget.height() as f32);

@@ -35,6 +35,8 @@ fn with_gtk() {
     qa_sends_the_key_a_keyboard_would();
     // Last: the theme styles every widget made after it.
     an_app_provider_at_app_priority_is_above_the_reset();
+    #[cfg(feature = "dev")]
+    a_dividers_line_is_two_whole_pixels();
 }
 
 fn wrapping(text: &str) -> gtk::Label {
@@ -554,4 +556,42 @@ fn an_app_provider_at_app_priority_is_above_the_reset() {
         0,
         "the reset unsets what GTK's application priority sets"
     );
+}
+
+/// After the theme is installed: the line is the stylesheet's.
+#[cfg(feature = "dev")]
+fn a_dividers_line_is_two_whole_pixels() {
+    let split = Split::new(&gtk::Label::new(None), &gtk::Label::new(None), (240, 360), Some(600));
+    split.set_resizable(true);
+    let divider = split.widget.last_child().unwrap();
+    // As while it is dragged: the line shows without the pointer or the keyboard on it.
+    divider.add_css_class("dragging");
+    let window = gtk::Window::builder()
+        .child(&split.widget)
+        .default_width(900)
+        .default_height(200)
+        .build();
+    window.present();
+    let main = glib::MainContext::default();
+    let start = std::time::Instant::now();
+    while !(divider.is_mapped() && divider.width() > 0) {
+        assert!(start.elapsed().as_secs() < 5, "the window is laid out");
+        main.iteration(false);
+    }
+    let path = std::env::temp_dir().join(format!("omui-divider-{}.png", std::process::id()));
+    crate::dev::shot(&divider, &path).unwrap();
+    let texture = gtk::gdk::Texture::from_filename(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let width = texture.width() as usize;
+    let mut pixels = vec![0u8; width * 4 * texture.height() as usize];
+    texture.download(&mut pixels, width * 4);
+    let row: Vec<&[u8]> = pixels[..width * 4].chunks(4).collect();
+    let line: Vec<usize> = (0..width).filter(|&x| row[x] != row[0]).collect();
+    assert_eq!(
+        (width, line.as_slice()),
+        (7, &[2, 3][..]),
+        "two columns beside each other, none between the line's colour and the window's"
+    );
+    assert_eq!(row[2], row[3], "and both the line's whole colour");
+    window.destroy();
 }

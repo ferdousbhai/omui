@@ -56,6 +56,10 @@ const PAGE_ANIMATION: &str = "gtk_svg_advance: time went backward";
 /// How long a command waits for its widget, or `wait` for its condition, unless it gives `timeout_ms`.
 const TIMEOUT: Duration = Duration::from_secs(5);
 
+/// How long GTK's spinner takes to fade in (the `gpa:transition-duration` of its image, half a second), and a few
+/// frames more.
+const SPINNER_FADE: Duration = Duration::from_millis(600);
+
 /// Starts scripted QA for `app` when this run asks for it (`OMUI_QA=1`), as [`crate::application`] does for its own:
 /// a display other than broadway ends the run as the application starts, and commands are read once the first
 /// `activate` or `open` has run the app's own handlers, from the window they opened. Call it before `app.run()`,
@@ -467,6 +471,17 @@ impl Qa {
                     .and_then(Value::as_str)
                     .ok_or("`shot` needs `path`")?;
                 let (window, path) = (self.window.clone(), std::path::PathBuf::from(path));
+                // GTK's spinner fades in from nothing as it starts to turn: drawn in its first frames, as a script
+                // that has just brought it on screen would have it, the picture has no spinner. When one began is
+                // not known, so any on screen is given the whole fade.
+                let mut turning = false;
+                walk(self.window.upcast_ref(), &mut |widget| {
+                    turning |=
+                        widget.is_mapped() && widget.downcast_ref::<gtk::Spinner>().is_some_and(|s| s.is_spinning());
+                });
+                if turning {
+                    glib::timeout_future(SPINNER_FADE).await;
+                }
                 painted(&self.window, move || crate::dev::shot(&window, &path)).await??;
                 Ok(Map::new())
             }

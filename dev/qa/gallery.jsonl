@@ -97,6 +97,11 @@
 {"do":"wait","role":"button","name":"Create","visible":false}
 {"do":"wait","role":"list-item","name":"Create an account","visible":true}
 
+# A spinner fades in from nothing: `shot` gives it the time, so the picture taken as it comes on screen has it.
+{"do":"select","role":"list-item","name":"Avatars"}
+{"do":"wait","role":"label","name":"Looking for devices…","visible":true}
+{"do":"shot","path":"target/qa-gallery-spinner.png"}
+
 # 0.5's divider: a Tab stop whose Right and Home move it (the search box is the sidebar's width less its padding).
 {"do":"select","role":"list-item","name":"Split"}
 {"do":"wait","role":"search-box","name":"Search contacts","width":251}
