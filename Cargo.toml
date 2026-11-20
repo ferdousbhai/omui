@@ -1,6 +1,6 @@
 [package]
 name = "omui"
-version = "0.5.4"
+version = "0.5.5"
 edition = "2024"
 rust-version = "1.92"
 # The code is MIT; the bundled icons are Lucide's (THIRD_PARTY_NOTICES.md).

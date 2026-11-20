@@ -340,7 +340,7 @@ same way: `{"role": "dialog", "name": "Rename the folder"}`. Its name is the tex
 (`Relation::LabelledBy`, as the control of `entry_row`, `password_row`, `switch_row` and `combo_row` is by the row's
 title), its accessible label, its label, title or placeholder, its tooltip, or for a button, row, list item, grid
 cell, group, dialog or toast any label shown inside it. It is looked for in every
-window, a dialog's own modal window too (over a window with no `Shell`). Of several, the innermost on screen is meant; more than one is an error. A command that acts waits up to `timeout_ms` (5000) for its widget to
+window, a dialog's own modal window too (over a window with no `Shell`). Of several, the innermost on screen is meant; more than one is an error once it has stayed so for the command's `timeout_ms` (a page going while the next comes is waited out). A command that acts waits up to `timeout_ms` (5000) for its widget to
 be on screen, and every command waits for the window to be drawn after the last.
 
 | Command | Does | Answers |
@@ -354,7 +354,7 @@ be on screen, and every command waits for the window to be drawn after the last.
 | `{"do":"select", role, name}` | Selects what it is or is in: a `GtkListBox` row, or an item of a `GtkListView` or `GtkGridView` (`list-item`, `grid-cell`) through the view's selection model, as a click would; fails if that model leaves it unselected (`GtkNoSelection`) | |
 | `{"do":"query", role, name}` | | `role` `name` `visible` `sensitive` `focused` `text` (a drop-down's: the string it shows as chosen) `checked` `selected` (list box rows, view items) `width` `height` |
 | `{"do":"state"}` | | `size` of the app's window; of all windows the `dialog` on top (its name, or null), the `toasts` showing, the `focus` in the window that has the keyboard (a drop-down or menu button for the button inside it, as GTK names that button) |
-| `{"do":"wait", …}` | Waits until each other key equals what `query` (with a role or name) or `state` answers, or a widget is on screen; one that is not there is `"visible": false` | The last answer |
+| `{"do":"wait", …}` | Waits until each other key equals what `query` (with a role or name) or `state` answers (a number may be asked for as a range, `"height": {"min": 30, "max": 60}`, with either bound alone too), or a widget is on screen; one that is not there is `"visible": false` | The last answer |
 | `{"do":"resize", "width":560, "height":700}` | Sets the window's size | |
 | `{"do":"shot", "path":"x.png"}` | Writes the window to a PNG through `dev::shot`, as it is drawn next | |
 | `{"do":"list", role}` | | The `widgets` on screen with a name, as `{role, name}`: for writing a script |

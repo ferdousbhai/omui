@@ -514,8 +514,9 @@ impl Qa {
         loop {
             match target.find(&widgets(&self.roots())) {
                 Ok(Some(widget)) if widget.is_mapped() => return Ok(widget),
-                Err(e) => return Err(e),
-                _ if start.elapsed() > timeout => return Err(format!("found no {target} on screen")),
+                // More than one may be a page going while the next comes: an error only if it stays so.
+                Err(e) if start.elapsed() > timeout => return Err(e),
+                Ok(_) if start.elapsed() > timeout => return Err(format!("found no {target} on screen")),
                 _ => glib::timeout_future(Duration::from_millis(20)).await,
             }
         }
@@ -534,9 +535,16 @@ impl Qa {
         loop {
             let now = match target {
                 // Not there is not on screen, for a wait until something has gone.
-                Some(target) => match target.find(&widgets(&self.roots()))? {
-                    Some(widget) => properties(&widget),
-                    None => Map::from_iter([("visible".to_owned(), false.into())]),
+                Some(target) => match target.find(&widgets(&self.roots())) {
+                    Ok(Some(widget)) => properties(&widget),
+                    Ok(None) => Map::from_iter([("visible".to_owned(), false.into())]),
+                    // More than one for now, as while one page goes and the next comes: waited out like any
+                    // other state that is not the one asked for, and the error if it stays.
+                    Err(e) if start.elapsed() > timeout => return Err(e),
+                    Err(_) => {
+                        glib::timeout_future(Duration::from_millis(20)).await;
+                        continue;
+                    }
                 },
                 None => self.state(),
             };
@@ -544,7 +552,9 @@ impl Qa {
             let holds = if expected.is_empty() {
                 now.get("visible") == Some(&Value::Bool(true))
             } else {
-                expected.iter().all(|(key, value)| now.get(*key) == Some(value))
+                expected
+                    .iter()
+                    .all(|(key, value)| now.get(*key).is_some_and(|now| meets(now, value)))
             };
             if holds {
                 return Ok(now);
@@ -1110,6 +1120,24 @@ fn choose(widget: &gtk::Widget) -> Option<Result<(), String>> {
     }))
 }
 
+/// Whether what `wait` finds is what it was asked for: the same value, or for a number a range it is in,
+/// `{"min": 30}`, `{"max": 400}` or both, where the exact number is the font's or the theme's to say.
+fn meets(now: &Value, asked: &Value) -> bool {
+    let bounds = asked.as_object().filter(|range| {
+        !range.is_empty()
+            && range
+                .iter()
+                .all(|(key, bound)| (key == "min" || key == "max") && bound.is_number())
+    });
+    match (bounds, now.as_f64()) {
+        (Some(range), Some(now)) => {
+            range.get("min").and_then(Value::as_f64).is_none_or(|min| now >= min)
+                && range.get("max").and_then(Value::as_f64).is_none_or(|max| now <= max)
+        }
+        _ => now == asked,
+    }
+}
+
 /// Whether `widget` is an item of a list or grid view: one of the widgets the view makes for its model's items.
 fn view_item(widget: &gtk::Widget) -> bool {
     widget
@@ -1301,5 +1329,11 @@ mod tests {
                 .is_none()
         );
         assert!(Target::parse(&command(r#"{"do":"click","role":"buton"}"#)).is_err());
+        // `wait`: the same value, or a number within a range
+        assert!(meets(&json!(36), &json!(36)) && !meets(&json!(36), &json!(30)));
+        assert!(meets(&json!(36), &json!({"min": 30})) && !meets(&json!(36), &json!({"min": 40})));
+        assert!(meets(&json!(36), &json!({"min": 30, "max": 36})) && !meets(&json!(36), &json!({"max": 35})));
+        assert!(!meets(&json!("36"), &json!({"min": 30})) && !meets(&json!(36), &json!({"least": 30})));
+        assert!(meets(&json!({"role": "button"}), &json!({"role": "button"})));
     }
 }

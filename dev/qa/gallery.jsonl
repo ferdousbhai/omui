@@ -84,6 +84,8 @@
 {"do":"wait","role":"list-item","name":"Every day","visible":true}
 {"do":"click","role":"list-item","name":"Every day"}
 {"do":"wait","role":"combo-box","name":"Fetch","text":"Every day"}
+# 0.5.5: a number by a range, where the font says what it is exactly.
+{"do":"wait","role":"combo-box","name":"Fetch","height":{"min":20,"max":60}}
 
 # Nav: a page pushed, and Escape back.
 {"do":"select","role":"list-item","name":"Pages"}
