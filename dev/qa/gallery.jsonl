@@ -39,6 +39,15 @@
 {"do":"key","keys":"<Shift>R"}
 {"do":"wait","role":"alert","name":"Reloaded","visible":true}
 
+# A menu that is open has the keyboard: Down moves in it, Escape closes it, and the next key is the window's again.
+{"do":"click","role":"button","name":"Device actions"}
+{"do":"key","keys":"Down"}
+{"do":"wait","focus":{"role":"menu-item","name":"Lost Mode…"}}
+{"do":"key","keys":"Escape"}
+{"do":"wait","focus":{"role":"button","name":"Device actions"}}
+{"do":"key","keys":"F5"}
+{"do":"wait","role":"alert","name":"Refreshed","visible":true}
+
 # 0.5's banners, then toasts: three at most, and an Undo that makes room for the fourth.
 {"do":"select","role":"list-item","name":"States"}
 {"do":"wait","role":"button","name":"Clone…","visible":true,"sensitive":false}
@@ -66,6 +75,9 @@
 {"do":"set","role":"switch","name":"Metered connections","checked":true}
 {"do":"wait","role":"switch","name":"Metered connections","checked":true}
 {"do":"wait","role":"combo-box","name":"Fetch","visible":true}
+# The keyboard on a drop-down is on its button, which GTK names by the drop-down.
+{"do":"focus","role":"combo-box","name":"Fetch"}
+{"do":"wait","focus":{"role":"combo-box","name":"Fetch"}}
 
 # Nav: a page pushed, and Escape back.
 {"do":"select","role":"list-item","name":"Pages"}

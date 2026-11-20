@@ -35,15 +35,17 @@ const NO_A11Y_BUS: &[&str] = &[
     "Unable to acquire the address of the accessibility bus",
 ];
 
-/// What GDK's broadway backend says, once a run (`g_warning_once`), when a page answers its frames, as the page that
-/// presses keys here does: each answer marks the surface's pending frame submitted at 1/30 s
-/// (`_gdk_broadway_roundtrip_notify`, GTK 4.24), and a frame the clock had already finished with another interval
-/// draws this. A browser showing the display gets it as well; the app is not at fault. Broadway marks no frame
-/// presented, so `gdk_frame_timings_presented()`'s like warning cannot come from here, and is not let pass.
-const PAGE_FRAMES: (&str, &str) = (
-    "Gdk",
+/// What GDK's broadway backend says (domain Gdk), each once a run (`g_warning_once`), when a page answers its frames,
+/// as the page that presses keys here does: each answer marks the surface's pending frame submitted at 1/30 s
+/// (`_gdk_broadway_roundtrip_notify`, GTK 4.24). A frame the clock had already finished with another interval draws
+/// the first. A popover shares its window's frame clock and is answered for the same frame as the window, whose
+/// answer has marked it submitted already: an open menu draws the second. A browser showing the display gets them
+/// as well; the app is not at fault. Broadway marks no frame presented, so `gdk_frame_timings_presented()`'s like
+/// warnings cannot come from here, and are not let pass.
+const PAGE_FRAMES: &[&str] = &[
     "Duplicate call to gdk_frame_timings_submitted() with different values.",
-);
+    "gdk_frame_timings_submitted() called on submitted frame.",
+];
 
 /// How long a command waits for its widget, or `wait` for its condition, unless it gives `timeout_ms`.
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -145,7 +147,7 @@ fn record(level: glib::LogLevel, fields: &[glib::LogField<'_>]) -> glib::LogWrit
     };
     let message = field("MESSAGE");
     let known = NO_A11Y_BUS.iter().any(|known| message.starts_with(known))
-        || ((field("GLIB_DOMAIN"), message) == PAGE_FRAMES && matches!(INPUT.get(), Some(Ok(_))));
+        || (field("GLIB_DOMAIN") == "Gdk" && PAGE_FRAMES.contains(&message) && matches!(INPUT.get(), Some(Ok(_))));
     if let Some(kind) = kind.filter(|_| !known) {
         let line = format!("{}-{kind}: {message}", field("GLIB_DOMAIN"));
         LOGGED.lock().unwrap_or_else(|e| e.into_inner()).push(line);
@@ -310,10 +312,10 @@ struct Qa {
     app: gtk::Application,
     /// The window the app opened: what `state`, `resize` and `shot` mean.
     window: gtk::Window,
-    /// Key presses and releases the app's windows have had, counted as they arrive.
+    /// Key presses and releases the app's windows and popovers have had, counted as they arrive.
     keys_seen: Rc<Cell<u64>>,
-    /// The windows that count them.
-    watched: RefCell<Vec<(glib::WeakRef<gtk::Window>, gtk::EventControllerLegacy)>>,
+    /// The windows and popovers that count them.
+    watched: RefCell<Vec<(glib::WeakRef<gtk::Widget>, gtk::EventControllerLegacy)>>,
 }
 
 type Answer = Result<Map<String, Value>, String>;
@@ -329,13 +331,23 @@ impl Qa {
             "click" => {
                 let widget = self.wait_for(target.as_ref(), timeout).await?;
                 clickable(&widget)?;
+                // A menu button or a drop-down is the button inside it, under the pointer.
+                let mut pressed = widget.clone();
+                let mut child = widget.first_child();
+                while let Some(inner) = child {
+                    if nested_button(&inner) {
+                        pressed = inner;
+                        break;
+                    }
+                    child = inner.next_sibling();
+                }
                 // A click on a button gives it the keyboard, unless it is one that does not take it so.
-                if widget.is_focusable() && widget.gets_focus_on_click() {
-                    widget.grab_focus();
+                if pressed.is_focusable() && pressed.gets_focus_on_click() {
+                    pressed.grab_focus();
                 }
                 // A button clicks at once, as under the pointer; `activate` would hold it pressed for a moment first,
-                // as Enter does.
-                if let Some(button) = widget.downcast_ref::<gtk::Button>() {
+                // as Enter does, and a menu would open only then.
+                if let Some(button) = pressed.downcast_ref::<gtk::Button>() {
                     button.emit_clicked();
                 } else if !widget.activate() {
                     return Err(format!("{} cannot be activated", describe(&widget)));
@@ -460,12 +472,12 @@ impl Qa {
         }
     }
 
-    /// Every window, those on top first: the newest, and the one with the keyboard before all. Not only the app's:
-    /// a dialog over a window that has no `Shell` is a modal window of no application.
+    /// Every window, those on top first: the one with the keyboard, then the newest (`list_toplevels` gives them
+    /// newest first). Not only the app's: a dialog over a window that has no `Shell` is a modal window of no
+    /// application.
     fn roots(&self) -> Vec<gtk::Window> {
         let mut windows: Vec<_> = gtk::Window::list_toplevels()
             .into_iter()
-            .rev()
             .filter_map(|window| window.downcast::<gtk::Window>().ok())
             .collect();
         windows.sort_by_key(|window| !window.is_active());
@@ -545,11 +557,12 @@ impl Qa {
                 }
             });
         }
-        // An entry's text is a part of it with no role of its own: the entry is what has the keyboard.
+        // An entry's text is a part of it with no role of its own: the entry is what has the keyboard. A drop-down's
+        // button is a part of it too, which GTK names by the drop-down, as a screen reader hears it.
         let mut focus = RootExt::focus(&self.keyboard_window());
         while let Some(part) = focus
             .clone()
-            .filter(|w| w.accessible_role() == gtk::AccessibleRole::None)
+            .filter(|w| w.accessible_role() == gtk::AccessibleRole::None || nested_button(w))
         {
             focus = part.parent();
         }
@@ -573,8 +586,8 @@ impl Qa {
         if key == gdk::Key::VoidSymbol {
             return Err("that key has no key symbol".to_owned());
         }
-        for window in self.roots() {
-            self.watch(&window);
+        for native in self.natives() {
+            self.watch(&native);
         }
         let input = INPUT
             .get()
@@ -602,10 +615,10 @@ impl Qa {
             if event == KEY_PRESS {
                 self.keyboard_ready().await?;
             }
-            // A window the last key opened counts too.
-            for window in self.roots() {
-                if !self.watching(&window) {
-                    self.watch(&window);
+            // A window or menu the last key opened counts too.
+            for native in self.natives() {
+                if !self.watching(&native) {
+                    self.watch(&native);
                 }
             }
             let before = self.keys_seen.get();
@@ -659,20 +672,35 @@ impl Qa {
         Ok(())
     }
 
-    fn watching(&self, window: &gtk::Window) -> bool {
+    /// Every window, and every popover on screen in one: each has a surface of its own, and a key that reaches a
+    /// popover (a menu that has the keyboard) goes through its widgets alone, not the window's.
+    fn natives(&self) -> Vec<gtk::Widget> {
+        let mut natives = Vec::new();
+        for window in self.roots() {
+            walk(window.upcast_ref(), &mut |widget| {
+                if widget.is::<gtk::Window>() || (widget.is::<gtk::Popover>() && widget.is_mapped()) {
+                    natives.push(widget.clone());
+                }
+            });
+        }
+        natives
+    }
+
+    fn watching(&self, native: &gtk::Widget) -> bool {
         self.watched
             .borrow()
             .iter()
-            .any(|(w, _)| w.upgrade().as_ref() == Some(window))
+            .any(|(w, _)| w.upgrade().as_ref() == Some(native))
     }
 
-    /// Counts the key presses and releases `window` has, before any of its widgets sees them: its counter is put
-    /// first among the window's controllers, where GTK puts the one added last, as an open dialog adds its own.
-    fn watch(&self, window: &gtk::Window) {
+    /// Counts the key presses and releases `native` (a window or popover) has, before any of its widgets sees them:
+    /// its counter is put first among its controllers, where GTK puts the one added last, as an open dialog adds its
+    /// own.
+    fn watch(&self, native: &gtk::Widget) {
         let mut watched = self.watched.borrow_mut();
         watched.retain(|(w, _)| w.upgrade().is_some());
-        if let Some(index) = watched.iter().position(|(w, _)| w.upgrade().as_ref() == Some(window)) {
-            window.remove_controller(&watched.remove(index).1);
+        if let Some(index) = watched.iter().position(|(w, _)| w.upgrade().as_ref() == Some(native)) {
+            native.remove_controller(&watched.remove(index).1);
         }
         // Every event: a key controller would not see a release whose press another controller took.
         let events = gtk::EventControllerLegacy::new();
@@ -687,8 +715,8 @@ impl Qa {
             }
             glib::Propagation::Proceed
         });
-        window.add_controller(events.clone());
-        watched.push((window.downgrade(), events));
+        native.add_controller(events.clone());
+        watched.push((native.downgrade(), events));
     }
 
     /// Ends the run: the windows are destroyed, so what GLib logs as they go counts too, and the last answer is
@@ -833,18 +861,36 @@ pub(crate) fn names(widget: &gtk::Widget) -> Vec<String> {
     }
     names.extend(widget.tooltip_text().map(Into::into));
     if NAMED_BY_CONTENT.contains(&widget.accessible_role()) {
-        let mut child = widget.first_child();
-        while let Some(inner) = child {
-            walk(&inner, &mut |inner| {
-                if inner.is::<gtk::Label>() {
-                    names.extend(own_label(inner));
-                }
-            });
-            child = inner.next_sibling();
-        }
+        shown_labels(widget, &mut names);
     }
     names.retain(|name| !name.is_empty());
     names
+}
+
+/// The text of the labels inside `widget`, but those hidden or in a hidden widget, which GTK leaves out of a name
+/// (accessible name step 2.A): a drop-down's button holds a hidden "(None)" for when nothing is chosen.
+fn shown_labels(widget: &gtk::Widget, names: &mut Vec<String>) {
+    let mut child = widget.first_child();
+    while let Some(inner) = child {
+        if inner.is_visible() {
+            if inner.is::<gtk::Label>() {
+                names.extend(own_label(&inner));
+            }
+            shown_labels(&inner, names);
+        }
+        child = inner.next_sibling();
+    }
+}
+
+/// Whether `widget` is the button inside a widget that GTK names it by (`gtk_at_context_is_nested_button`): a
+/// drop-down's or menu button's toggle, the button of a colour, font or scale button.
+fn nested_button(widget: &gtk::Widget) -> bool {
+    let Some(parent) = widget.parent() else { return false };
+    (widget.is::<gtk::ToggleButton>() && (parent.is::<gtk::DropDown>() || parent.is::<gtk::MenuButton>()))
+        || (widget.is::<gtk::Button>()
+            && (parent.is::<gtk::ColorDialogButton>()
+                || parent.is::<gtk::FontDialogButton>()
+                || parent.is::<gtk::ScaleButton>()))
 }
 
 fn name(widget: &gtk::Widget) -> String {
@@ -1068,7 +1114,8 @@ fn is_over(window: &gtk::Window, under: &gtk::Window) -> bool {
 
 /// The key and the modifiers `keys` names (GTK accelerator syntax), as a keyboard sends them. GTK's parser gives a
 /// letter in lower case, so that "R" and "<Shift>R" are r; a keyboard sends the letter it types, upper case with
-/// Shift held.
+/// Shift held. An upper-case letter is typed so with other modifiers too: "<Control>U" is Ctrl+Shift+U, where GTK
+/// would read Ctrl+u, so that a letter's case always says whether Shift is held.
 pub(crate) fn keyboard_key(keys: &str) -> Result<(gdk::Key, gdk::ModifierType), String> {
     let (key, mut modifiers) = gtk::accelerator_parse(keys).ok_or_else(|| format!("no such key: {keys}"))?;
     let named = keys.rsplit('>').next().and_then(gdk::Key::from_name);

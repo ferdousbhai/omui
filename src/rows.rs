@@ -256,13 +256,16 @@ impl Row {
         self.widget.connect_parent_notify(follow);
     }
 
-    /// A row whose control is where the keyboard stops, with a click anywhere on the row going to it.
+    /// A row whose control is where the keyboard stops, with a click anywhere on the row going to it. The row's title
+    /// names the control and its subtitle describes it, as a screen reader on the control says them: by the labels,
+    /// so that a new title or subtitle reaches it, and an empty, hidden subtitle adds nothing.
     fn carrying(self, control: &impl IsA<gtk::Widget>) -> Self {
         self.widget.set_focusable(false);
         self.set_activatable_widget(control);
-        control
-            .as_ref()
-            .update_relation(&[gtk::accessible::Relation::LabelledBy(&[self.title.upcast_ref()])]);
+        control.as_ref().update_relation(&[
+            gtk::accessible::Relation::LabelledBy(&[self.title.upcast_ref()]),
+            gtk::accessible::Relation::DescribedBy(&[self.subtitle.upcast_ref()]),
+        ]);
         self
     }
 

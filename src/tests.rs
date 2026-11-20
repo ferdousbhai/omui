@@ -429,9 +429,10 @@ fn qa_selects_a_list_views_item_through_its_model() {
 }
 
 /// A row's control is labelled by the row's title, which a screen reader says and QA finds it by, and follows a new
-/// title.
+/// title; it is described by the row's subtitle.
 #[cfg(feature = "qa")]
 fn qa_names_a_rows_control_by_its_title() {
+    use glib::translate::*;
     let (entry_row, entry) = crate::entry_row("Name", "Ada");
     let (password_row, password) = crate::password_row("Secret access key");
     let (switch_row, switch) = crate::switch_row("Sync settings too", "Themes and key bindings", true);
@@ -449,6 +450,35 @@ fn qa_names_a_rows_control_by_its_title() {
     assert_eq!(first(dropdown.upcast_ref()).as_deref(), Some("Fetch"));
     entry_row.set_title("Full name");
     assert_eq!(first(entry.upcast_ref()).as_deref(), Some("Full name"));
+    // The switch, not the row, has the keyboard: it is described by the row's subtitle.
+    fn label(widget: &gtk::Widget, text: &str) -> Option<gtk::Widget> {
+        if widget
+            .downcast_ref::<gtk::Label>()
+            .is_some_and(|label| label.label() == text)
+        {
+            return Some(widget.clone());
+        }
+        let mut child = widget.first_child();
+        while let Some(inner) = child {
+            if let Some(found) = label(&inner, text) {
+                return Some(found);
+            }
+            child = inner.next_sibling();
+        }
+        None
+    }
+    let subtitle = label(switch_row.widget.upcast_ref(), "Themes and key bindings").expect("the row's subtitle");
+    // SAFETY: a NULL-terminated list of accessibles follows the relation; the answer is a new string, or NULL when
+    // the relation holds exactly them.
+    let mismatch: Option<glib::GString> = unsafe {
+        from_glib_full(gtk::ffi::gtk_test_accessible_check_relation(
+            switch.upcast_ref::<gtk::Accessible>().to_glib_none().0,
+            gtk::ffi::GTK_ACCESSIBLE_RELATION_DESCRIBED_BY,
+            subtitle.upcast_ref::<gtk::Accessible>().as_ptr(),
+            std::ptr::null::<gtk::ffi::GtkAccessible>(),
+        ))
+    };
+    assert_eq!(mismatch, None, "the switch is described by the row's subtitle");
     window.destroy();
 }
 
@@ -463,6 +493,8 @@ fn qa_sends_the_key_a_keyboard_would() {
     assert_eq!(key("<Shift>R"), Ok((Key::R, shift)));
     assert_eq!(key("r"), Ok((Key::r, ModifierType::empty())));
     assert_eq!(key("<Control>u"), Ok((Key::u, ModifierType::CONTROL_MASK)));
+    // Upper case is Shift with any modifiers, where GTK's accelerators would read Ctrl+u.
+    assert_eq!(key("<Control>U"), Ok((Key::U, ModifierType::CONTROL_MASK | shift)));
     assert_eq!(key("question"), Ok((Key::question, ModifierType::empty())));
     assert_eq!(key("<Shift>Tab"), Ok((Key::Tab, shift)));
     assert!(key("NoSuchKey").is_err());
