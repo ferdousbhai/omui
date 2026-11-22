@@ -56,7 +56,11 @@ const HELD: [(&str, &str); 2] = [("can-focus", "om-held-can-focus"), ("can-targe
 /// body the dialog is the app's widget alone, edge to edge.
 ///
 /// A response closes the dialog and then runs the handlers, unless [`Dialog::set_response_closes`] says it stays open.
-/// Escape gives the close response, Enter the default one.
+/// Escape gives the close response, Enter the default one. However a dialog is dismissed (Escape, its close button,
+/// [`Dialog::close`], or the window under it closing), its handlers hear of it:
+/// with the close response the app named, else with `"cancel"` when the dialog has that response, else with
+/// [`Dialog::CLOSE`]. So a question that is waved away is answered with the answer that loses nothing, and whatever
+/// waits on it (an auto-save held back, a window that asked before closing) is not left waiting.
 /// A dialog stays alive while it is shown, so the handle may be dropped after [`Dialog::present`].
 #[derive(Clone)]
 pub struct Dialog {
@@ -98,6 +102,7 @@ struct Inner {
     frame: gtk::Box,
     frame_size: PreferredLayout,
     heading: Option<gtk::Label>,
+    body: Option<gtk::Label>,
     /// The close button of [`Dialog::set_close_button`], once asked for.
     close_button: RefCell<Option<gtk::Button>>,
     title: RefCell<Option<String>>,
@@ -116,13 +121,24 @@ struct Inner {
     /// The backdrop or the window the card is shown in. Weak: the parent window owns it, and its key handler owns
     /// the dialog.
     surface: glib::WeakRef<gtk::Widget>,
-    /// What keeps mnemonics to an in-window dialog, on the window.
+    /// The address of that surface while the dialog is shown on it, 0 otherwise. A weak reference is already empty
+    /// when the surface is destroyed for its last reference going, which is how a closing window takes the dialog
+    /// with it; the address, never followed, still tells that surface apart from one the dialog has left.
+    shown_on: Cell<usize>,
+    /// What keeps mnemonics to an in-window dialog, on the window, and gives it Escape, Enter and Tab while the
+    /// keyboard is nowhere in it.
     mnemonics: RefCell<Option<gtk::EventControllerKey>>,
     /// What had the keyboard before an in-window dialog took it.
     focus_before: glib::WeakRef<gtk::Widget>,
 }
 
 impl Dialog {
+    /// The response a dismissed dialog gives when the app named none with [`Dialog::set_close_response`] and the
+    /// dialog has no `"cancel"` response: `"close"`.
+    pub const CLOSE: &'static str = "close";
+
+    /// `heading` and `body` are text as it is shown. For text that follows the language, give the English here and
+    /// [`Dialog::set_heading_translated`] and [`Dialog::set_body_translated`] it, or set it from [`Dialog::bind`].
     pub fn new(heading: Option<&str>, body: Option<&str>) -> Self {
         let card = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
@@ -189,6 +205,7 @@ impl Dialog {
                 frame,
                 frame_size,
                 heading,
+                body,
                 close_button: RefCell::new(None),
                 title: RefCell::new(None),
                 extra,
@@ -202,6 +219,7 @@ impl Dialog {
                 can_close: Cell::new(true),
                 handlers: RefCell::new(Vec::new()),
                 surface: glib::WeakRef::new(),
+                shown_on: Cell::new(0),
                 mnemonics: RefCell::new(None),
                 focus_before: glib::WeakRef::new(),
             }),
@@ -243,6 +261,102 @@ impl Dialog {
         if let Some(window) = self.inner.surface.upgrade().and_downcast::<gtk::Window>() {
             window.set_title(Some(title));
         }
+    }
+
+    /// Changes the heading of a dialog made with one ([`Dialog::new`]); one made without stays without. The title of
+    /// the dialog's own window follows it, unless [`Dialog::set_title`] named the dialog. It ends what
+    /// [`Dialog::set_heading_translated`] began: the heading stays this one after a switch of language.
+    pub fn set_heading(&self, heading: &str) {
+        crate::i18n::unbind_slot(self.inner.card.upcast_ref(), "heading");
+        self.show_heading(heading);
+    }
+
+    fn show_heading(&self, heading: &str) {
+        let Some(label) = &self.inner.heading else { return };
+        label.set_label(heading);
+        if self.inner.title.borrow().is_none()
+            && let Some(window) = self.inner.surface.upgrade().and_downcast::<gtk::Window>()
+        {
+            window.set_title(Some(heading));
+        }
+    }
+
+    /// Changes the body of a dialog made with one; one made without stays without. It ends what
+    /// [`Dialog::set_body_translated`] began, as [`Dialog::set_heading`] does.
+    pub fn set_body(&self, body: &str) {
+        crate::i18n::unbind_slot(self.inner.card.upcast_ref(), "body");
+        self.show_body(body);
+    }
+
+    fn show_body(&self, body: &str) {
+        if let Some(label) = &self.inner.body {
+            label.set_label(body);
+        }
+    }
+
+    /// Changes the label of the response's button. `label` may mark a mnemonic with an underscore. It ends what
+    /// [`Dialog::set_response_translated`] began for the response.
+    pub fn set_response_label(&self, id: &str, label: &str) {
+        crate::i18n::unbind_slot(self.inner.card.upcast_ref(), &format!("response {id}"));
+        self.show_response_label(id, label);
+    }
+
+    fn show_response_label(&self, id: &str, label: &str) {
+        if let Some(button) = self.button(id) {
+            button.set_label(label);
+        }
+    }
+
+    /// Runs `set` on the dialog now and after each switch of language, for as long as the dialog lives: where it
+    /// writes its text again with [`crate::tr`] and its kin, a body with a name in it among them.
+    ///
+    /// ```ignore
+    /// dialog.bind(move |dialog| dialog.set_body(&omui::tr!("{} will be deleted.", name)));
+    /// ```
+    pub fn bind(&self, set: impl Fn(&Dialog) + 'static) {
+        set(self);
+        let weak = self.downgrade();
+        crate::i18n::on_change(&self.inner.card, move || {
+            if let Some(dialog) = weak.upgrade() {
+                set(&dialog);
+            }
+        });
+    }
+
+    /// Makes `text`, translated, the heading, now and after each switch of language: an open dialog turns to the
+    /// new language with the window under it. `text` is the English, a string literal as [`crate::tr`]'s is.
+    ///
+    /// A later call replaces this one rather than adding to it, and [`Dialog::set_heading`] ends it: the heading is
+    /// the newest text given, after a switch too. The body and each response's label are bound apart.
+    pub fn set_heading_translated(&self, text: &str) {
+        let text = text.to_owned();
+        self.bind_slot("heading", move |dialog| {
+            dialog.show_heading(&crate::i18n::translate(&text))
+        });
+    }
+
+    /// [`Dialog::set_heading_translated`] for the body.
+    pub fn set_body_translated(&self, text: &str) {
+        let text = text.to_owned();
+        self.bind_slot("body", move |dialog| dialog.show_body(&crate::i18n::translate(&text)));
+    }
+
+    /// [`Dialog::set_heading_translated`] for the label of a response added already.
+    pub fn set_response_translated(&self, id: &str, label: &str) {
+        let (slot, id, label) = (format!("response {id}"), id.to_owned(), label.to_owned());
+        self.bind_slot(&slot, move |dialog| {
+            dialog.show_response_label(&id, &crate::i18n::translate(&label));
+        });
+    }
+
+    /// [`Dialog::bind`] as the binding `slot` of the dialog, which a later one of the same slot replaces.
+    fn bind_slot(&self, slot: &str, set: impl Fn(&Dialog) + 'static) {
+        let weak = self.downgrade();
+        crate::i18n::bind_slot(self.inner.card.upcast_ref(), slot, &[], move || {
+            if let Some(dialog) = weak.upgrade() {
+                set(&dialog);
+            }
+        });
     }
 
     /// A button at the end of the row, after those already added. `label` may mark a mnemonic with an underscore.
@@ -302,9 +416,27 @@ impl Dialog {
         self.inner.default_response.replace(Some(id.to_owned()));
     }
 
-    /// The response Escape and [`Dialog::close`] give. Without one they close the dialog and no handler runs.
+    /// The response Escape, the close button and [`Dialog::close`] give: the one that loses nothing. Without one
+    /// they give `"cancel"` when the dialog has a response of that id, and [`Dialog::CLOSE`] otherwise, so the
+    /// handlers always run. A handler therefore acts on the responses it knows by name, and treats any other as the
+    /// dialog having been put away.
     pub fn set_close_response(&self, id: &str) {
         self.inner.close_response.replace(Some(id.to_owned()));
+    }
+
+    /// The response a dismissal gives, as [`Dialog::set_close_response`] describes.
+    pub fn close_response(&self) -> String {
+        if let Some(id) = self.inner.close_response.borrow().clone() {
+            return id;
+        }
+        let cancel = self.inner.responses.borrow().iter().any(|(id, _)| id == "cancel");
+        if cancel { "cancel" } else { Self::CLOSE }.to_owned()
+    }
+
+    /// A controller for the keys pressed while the keyboard is in the dialog, ahead of the dialog's own Escape,
+    /// Enter and Tab.
+    pub(crate) fn add_controller(&self, controller: impl IsA<gtk::EventController>) {
+        self.inner.card.add_controller(controller);
     }
 
     /// The app's own widget, between the body and the responses.
@@ -348,7 +480,8 @@ impl Dialog {
         if !on {
             return;
         }
-        let button = crate::icon_button(crate::icons::name::CLOSE, "Close");
+        let button = crate::icon_button(crate::icons::name::CLOSE, "");
+        crate::i18n::bind_tooltip(&button, "Close");
         button.add_css_class("dialog-close");
         button.set_halign(gtk::Align::End);
         button.set_valign(gtk::Align::Start);
@@ -416,7 +549,15 @@ impl Dialog {
             });
         });
         backdrop.add_controller(left);
-        self.inner.surface.set(Some(backdrop.upcast_ref()));
+        backdrop.connect_destroy({
+            let weak = self.downgrade();
+            move |backdrop| {
+                if let Some(dialog) = weak.upgrade() {
+                    dialog.gone(backdrop.upcast_ref());
+                }
+            }
+        });
+        self.shown_on(backdrop.upcast_ref());
         // Held back first: the card takes the focus as it is mapped, and GTK moves the focus only between widgets
         // that can have it.
         hold_back(&overlay, Some(backdrop.upcast_ref()));
@@ -428,7 +569,7 @@ impl Dialog {
         let title = title
             .or_else(|| self.inner.heading.as_ref().map(|heading| heading.label().into()))
             .or_else(|| parent.and_then(|parent| parent.title()).map(Into::into));
-        // A question about a window that has gone has no one to answer to.
+        // A question about a window that has gone goes with it, and is answered as if it had been put away.
         let window = gtk::Window::builder()
             .modal(true)
             .destroy_with_parent(true)
@@ -436,13 +577,16 @@ impl Dialog {
             .child(&self.inner.frame)
             .build();
         window.set_transient_for(parent);
+        // Named as the app's main window is, so the compositor takes it for the same app. GTK would give a window
+        // outside the application the program's name anyway; this does not rest on that.
+        crate::name_window(&window);
         window.set_title(title.as_deref());
         window.add_controller(self.keys());
         window.connect_destroy({
             let weak = self.downgrade();
-            move |_| {
+            move |window| {
                 if let Some(dialog) = weak.upgrade() {
-                    dialog.inner.surface.set(None);
+                    dialog.gone(window.upcast_ref());
                 }
             }
         });
@@ -453,21 +597,53 @@ impl Dialog {
                 glib::Propagation::Stop
             }
         });
-        self.inner.surface.set(Some(window.upcast_ref()));
+        self.shown_on(window.upcast_ref());
         window.present();
     }
 
-    /// Closes as Escape does: not at all while [`Dialog::set_can_close`] is off, and with the close response when
-    /// there is one.
+    /// Closes as Escape does: not at all while [`Dialog::set_can_close`] is off, and otherwise with the close
+    /// response ([`Dialog::close_response`]), which the handlers always hear.
     pub fn close(&self) {
         if !self.inner.can_close.get() || self.inner.surface.upgrade().is_none() {
             return;
         }
+        let response = self.close_response();
         self.dismiss();
-        let response = self.inner.close_response.borrow().clone();
-        if let Some(id) = response {
-            self.emit(&id);
+        self.emit(&response);
+    }
+
+    /// The dialog's surface was destroyed under it: its parent window closed, or the app went, while it was open.
+    /// Nothing answered it, so it gives the close response, as a dismissal does; one the dialog closed itself was
+    /// let go of first, and says nothing more.
+    fn gone(&self, surface: &gtk::Widget) {
+        if self.inner.shown_on.get() != address(surface) {
+            return;
         }
+        self.inner.shown_on.set(0);
+        self.inner.surface.set(None);
+        self.inner.focus_before.set(None);
+        self.leave(surface);
+        self.emit(&self.close_response());
+    }
+
+    /// Takes the card out of `surface`, so the dialog can be presented again. A surface being destroyed may have let
+    /// go of it already: a backdrop's children are taken out before its own destroy handlers run, and asking GTK to
+    /// remove a child that is no longer there is a critical.
+    fn leave(&self, surface: &gtk::Widget) {
+        let frame = &self.inner.frame;
+        if frame.parent().as_ref() != Some(surface) {
+            return;
+        }
+        if let Some(window) = surface.downcast_ref::<gtk::Window>() {
+            window.set_child(gtk::Widget::NONE);
+        } else if let Some(backdrop) = surface.downcast_ref::<gtk::Box>() {
+            backdrop.remove(frame);
+        }
+    }
+
+    fn shown_on(&self, surface: &gtk::Widget) {
+        self.inner.surface.set(Some(surface));
+        self.inner.shown_on.set(address(surface));
     }
 
     /// Closes whatever [`Dialog::set_can_close`] says, and runs no handler.
@@ -511,8 +687,7 @@ impl Dialog {
     fn respond(&self, id: &str) {
         // Closed first, so a handler that presents the next dialog finds the window as it was. The close response
         // closes whatever `set_response_closes` said, from its button as from Escape.
-        let closes = self.inner.close_response.borrow().as_deref() == Some(id)
-            || !self.inner.staying.borrow().iter().any(|response| response == id);
+        let closes = self.close_response() == id || !self.inner.staying.borrow().iter().any(|response| response == id);
         if closes {
             self.dismiss();
         }
@@ -531,41 +706,74 @@ impl Dialog {
     fn keys(&self) -> gtk::EventControllerKey {
         let keys = gtk::EventControllerKey::new();
         let dialog = self.clone();
-        keys.connect_key_pressed(move |_, key, _, modifiers| {
-            let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
-            if modifiers.intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::ALT_MASK) {
-                return glib::Propagation::Proceed;
-            }
-            match key {
-                gdk::Key::Escape => dialog.close(),
-                gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter if dialog.activate_default() => {}
-                gdk::Key::ISO_Left_Tab => dialog.move_focus(gtk::DirectionType::TabBackward),
-                gdk::Key::Tab | gdk::Key::KP_Tab if shift => dialog.move_focus(gtk::DirectionType::TabBackward),
-                gdk::Key::Tab | gdk::Key::KP_Tab => dialog.move_focus(gtk::DirectionType::TabForward),
-                _ => return glib::Propagation::Proceed,
-            }
-            glib::Propagation::Stop
-        });
+        keys.connect_key_pressed(move |_, key, _, modifiers| dialog.own_key(key, modifiers));
         keys
+    }
+
+    /// What the dialog does with Escape, Enter and Tab.
+    fn own_key(&self, key: gdk::Key, modifiers: gdk::ModifierType) -> glib::Propagation {
+        let shift = modifiers.contains(gdk::ModifierType::SHIFT_MASK);
+        if modifiers.intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::ALT_MASK) {
+            return glib::Propagation::Proceed;
+        }
+        match key {
+            gdk::Key::Escape => self.close(),
+            gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter if self.activate_default() => {}
+            gdk::Key::ISO_Left_Tab => self.move_focus(gtk::DirectionType::TabBackward),
+            gdk::Key::Tab | gdk::Key::KP_Tab if shift => self.move_focus(gtk::DirectionType::TabBackward),
+            gdk::Key::Tab | gdk::Key::KP_Tab => self.move_focus(gtk::DirectionType::TabForward),
+            _ => return glib::Propagation::Proceed,
+        }
+        glib::Propagation::Stop
+    }
+
+    /// Whether this in-window dialog is the one on top, and the keyboard is nowhere inside it: the focused widget
+    /// was disabled or taken away, and GTK left the focus with no widget, or with the window.
+    fn lost_keyboard(&self) -> bool {
+        let Some(backdrop) = self.inner.surface.upgrade() else {
+            return false;
+        };
+        let inside = backdrop
+            .root()
+            .and_then(|root| root.focus())
+            .is_some_and(|focus| focus.is_ancestor(&backdrop));
+        !inside && !backdrop.has_css_class(HELD[0].1)
     }
 
     /// Alt and a letter, for the dialog's window. GTK gives a mnemonic to its button from the window, before any
     /// widget inside has the key, and so to a button the dialog covers. A controller added after GTK's own runs
     /// ahead of it: this one gives the key to the dialog's widgets alone.
+    ///
+    /// And the dialog's own keys while the keyboard is nowhere in it. When the focused widget is disabled or taken
+    /// away (a row's button that removes the row), GTK leaves the focus with no widget, and the keys go to the window
+    /// under the dialog; the focus is brought back only once GTK has settled where it went. A key pressed before then
+    /// is the dialog's all the same: Escape closes it whatever has the focus.
     fn mnemonics(&self) -> gtk::EventControllerKey {
         let keys = gtk::EventControllerKey::new();
         keys.set_propagation_phase(gtk::PropagationPhase::Capture);
         let weak = self.downgrade();
         keys.connect_key_pressed(move |_, key, _, modifiers| {
-            let alt =
-                modifiers.contains(gdk::ModifierType::ALT_MASK) && !modifiers.contains(gdk::ModifierType::CONTROL_MASK);
-            let Some(dialog) = weak.upgrade().filter(|_| alt) else {
+            let Some(dialog) = weak.upgrade() else {
                 return glib::Propagation::Proceed;
             };
-            if let Some(label) = mnemonic_label(dialog.inner.card.upcast_ref(), key.to_lower()) {
-                label.mnemonic_activate(false);
+            let alt =
+                modifiers.contains(gdk::ModifierType::ALT_MASK) && !modifiers.contains(gdk::ModifierType::CONTROL_MASK);
+            if alt {
+                if let Some(label) = mnemonic_label(dialog.inner.card.upcast_ref(), key.to_lower()) {
+                    label.mnemonic_activate(false);
+                }
+                return glib::Propagation::Stop;
             }
-            glib::Propagation::Stop
+            if !dialog.lost_keyboard() {
+                return glib::Propagation::Proceed;
+            }
+            // Back in the dialog first, so that the next key arrives as usual. Tab only brings it back, to the first
+            // widget, as Tab into a window does.
+            dialog.focus_first();
+            match key {
+                gdk::Key::Tab | gdk::Key::KP_Tab | gdk::Key::ISO_Left_Tab => glib::Propagation::Stop,
+                _ => dialog.own_key(key, modifiers),
+            }
         });
         keys
     }
@@ -611,14 +819,7 @@ impl Dialog {
 
     /// Brings the focus back when it has left the dialog, unless it went to a dialog over this one.
     fn keep_focus(&self) {
-        let Some(backdrop) = self.inner.surface.upgrade() else {
-            return;
-        };
-        let inside = backdrop
-            .root()
-            .and_then(|root| root.focus())
-            .is_some_and(|focus| focus.is_ancestor(&backdrop));
-        if !inside && !backdrop.has_css_class(HELD[0].1) {
+        if self.lost_keyboard() {
             self.focus_first();
         }
     }
@@ -628,12 +829,11 @@ impl Dialog {
             return;
         };
         self.inner.surface.set(None);
-        // The card leaves with the dialog, so it can be presented again.
+        self.inner.shown_on.set(0);
+        self.leave(&surface);
         if let Some(window) = surface.downcast_ref::<gtk::Window>() {
-            window.set_child(gtk::Widget::NONE);
             window.destroy();
         } else if let Some(backdrop) = surface.downcast_ref::<gtk::Box>() {
-            backdrop.remove(&self.inner.frame);
             if let Some(mnemonics) = self.inner.mnemonics.take()
                 && let Some(window) = mnemonics.widget()
             {
@@ -649,6 +849,11 @@ impl Dialog {
         }
         self.inner.focus_before.set(None);
     }
+}
+
+/// A widget's address, to tell it apart from another without holding it.
+fn address(widget: &gtk::Widget) -> usize {
+    widget.as_ptr() as usize
 }
 
 /// Whether a [`Dialog`] is open over the window `widget` is in, drawn on its [`crate::Shell`]. While one is, the
@@ -744,7 +949,9 @@ fn shortcuts_within(widget: &gtk::Widget, found: &mut Vec<gtk::ShortcutControlle
 /// Holds back exactly `shortcuts` on `window`: each is given propagation phase None, which also takes a managed one
 /// out of the window's reach, and those held before and not now get their phase back.
 fn hold_shortcuts(window: &gtk::Window, shortcuts: Vec<gtk::ShortcutController>) {
-    HELD_SHORTCUTS.with_borrow_mut(|held| {
+    // A dialog closed as the process ends, after the thread's state is gone, has no window left to give keys back to.
+    let _ = HELD_SHORTCUTS.try_with(|held| {
+        let mut held = held.borrow_mut();
         held.retain(|(window, _)| window.upgrade().is_some());
         let index = held.iter().position(|(w, _)| w.upgrade().as_ref() == Some(window));
         let mut before = index.map(|index| held.remove(index).1).unwrap_or_default();
@@ -804,6 +1011,11 @@ fn mnemonic_label(widget: &gtk::Widget, key: gdk::Key) -> Option<gtk::Label> {
 /// Asks before `action`: a dialog with Cancel (Alt+C) and a button labelled `action` (which may mark its own
 /// mnemonic), drawn as `appearance`. `yes` runs when
 /// that button is chosen. Enter chooses it too, unless it is destructive: then Enter cancels, as Escape does.
+///
+/// The heading, the body and the label are translated as the dialog opens and again after each switch of language
+/// while it is open, so an app may give them in English, as it gives [`crate::tr`] its text (its catalog check then
+/// counts `confirm`'s arguments 1 to 3: [`crate::i18n::CatalogCheck::function`]). Text already translated, or
+/// that is no catalog's, is shown as it is given.
 pub fn confirm(
     parent: &impl IsA<gtk::Widget>,
     heading: &str,
@@ -812,9 +1024,62 @@ pub fn confirm(
     appearance: Appearance,
     yes: impl FnOnce() + 'static,
 ) {
-    let dialog = Dialog::new(Some(heading), Some(body));
+    let (heading, body, action) = (heading.to_owned(), body.to_owned(), action.to_owned());
+    ask(parent, appearance, yes, move |dialog| {
+        let translate = crate::i18n::translate;
+        dialog.set_heading(&translate(&heading));
+        dialog.set_body(&translate(&body));
+        dialog.set_response_label("confirm", &translate(&action));
+    });
+}
+
+/// [`confirm`] for a heading, body or label with a name in it: each is translated and then has its placeholders
+/// filled from `args`, as [`crate::trf`] fills them, as the dialog opens and again after each switch of language
+/// while it is open. Each of the three is filled on its own from the start of `args`, so `{}` in the heading and in
+/// the body are both the first argument; `{0}`, `{1}` name one by its place. Its safety is `confirm`'s: Escape and
+/// the close button cancel, and Enter cancels when it is destructive.
+///
+/// ```ignore
+/// omui::confirmf(&window, "Delete {}?", "{} will be gone from every device.", "_Delete", &[&name],
+///     omui::Appearance::Destructive, move || delete(id));
+/// ```
+///
+/// [`crate::i18n::CatalogCheck`] counts its arguments 1 to 3 without being told.
+pub fn confirmf(
+    parent: &impl IsA<gtk::Widget>,
+    heading: &str,
+    body: &str,
+    action: &str,
+    args: &[&dyn std::fmt::Display],
+    appearance: Appearance,
+    yes: impl FnOnce() + 'static,
+) {
+    // Written out now: what the app passed may not live as long as the dialog, and a switch fills them again.
+    let args: Vec<String> = args.iter().map(ToString::to_string).collect();
+    let (heading, body, action) = (heading.to_owned(), body.to_owned(), action.to_owned());
+    ask(parent, appearance, yes, move |dialog| {
+        let args: Vec<&dyn std::fmt::Display> = args.iter().map(|arg| arg as &dyn std::fmt::Display).collect();
+        let fill = |text: &str| crate::i18n::fill_translated(text, None, &args);
+        dialog.set_heading(&fill(&heading));
+        dialog.set_body(&fill(&body));
+        dialog.set_response_label("confirm", &fill(&action));
+    });
+}
+
+/// What [`confirm`] and [`confirmf`] share: the dialog, its responses and its safety, with `words` writing the
+/// heading, the body and the confirming label now and after each switch of language.
+fn ask(
+    parent: &impl IsA<gtk::Widget>,
+    appearance: Appearance,
+    yes: impl FnOnce() + 'static,
+    words: impl Fn(&Dialog) + 'static,
+) {
+    // Made with a heading and a body, which `words` writes at once.
+    let dialog = Dialog::new(Some(""), Some(""));
     dialog.add_response("cancel", "_Cancel");
-    dialog.add_response("confirm", action);
+    dialog.add_response("confirm", "");
+    dialog.bind(words);
+    dialog.set_response_translated("cancel", "_Cancel");
     dialog.set_response_appearance("confirm", appearance);
     dialog.set_default_response(if appearance == Appearance::Destructive {
         "cancel"
@@ -835,17 +1100,27 @@ pub fn confirm(
 
 /// The app's name, version and a few lines about it (what it does, who made it, its licence), with a link to its
 /// website: what an About item in a window's menu opens (`adw::AboutDialog`). It closes from its close button or
-/// Escape.
+/// Escape. Its words follow a switch of language while it is open: omui's own, and `text`, which is translated as
+/// [`confirm`]'s are.
 pub fn about(parent: &impl IsA<gtk::Widget>, name: &str, version: &str, text: &str, website: Option<&str>) {
-    let dialog = Dialog::new(Some(name), Some(&format!("Version {version}\n\n{text}")));
+    let dialog = Dialog::new(Some(name), Some(text));
+    let (version, text) = (version.to_owned(), text.to_owned());
+    dialog.bind(move |dialog| {
+        let version = crate::i18n::trf("Version {}", &[&version]);
+        dialog.set_body(&format!("{version}\n\n{}", crate::i18n::translate(&text)));
+    });
     if let Some(website) = website {
         // A link in a label, not a link button: it lines up with the text above it, which a button's padding would
         // not.
-        let link = gtk::Label::builder()
-            .label(format!("<a href=\"{}\">Website</a>", glib::markup_escape_text(website)))
-            .use_markup(true)
-            .xalign(0.0)
-            .build();
+        let link = gtk::Label::builder().use_markup(true).xalign(0.0).build();
+        let website = website.to_owned();
+        crate::i18n::bind(&link, move |link| {
+            link.set_label(&format!(
+                "<a href=\"{}\">{}</a>",
+                glib::markup_escape_text(&website),
+                glib::markup_escape_text(&crate::i18n::tr("Website"))
+            ));
+        });
         dialog.set_extra_child(Some(link.upcast_ref()));
     }
     dialog.set_close_button(true);

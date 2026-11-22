@@ -1,0 +1,66 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    # The apps built on omui ship as Arch packages for Omarchy, against Arch's GTK, so it is tested there.
+    container: archlinux:latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install what omui builds and tests with
+        # glib2 has glib-compile-resources, which the build needs; gtk4 has the broadway display the GTK tests run
+        # on; the font is the interface's own, and the container has none at all until one is installed.
+        run: >
+          pacman -Syu --noconfirm --needed git base-devel rust gtk4 glib2 glib2-devel dbus
+          ttf-jetbrains-mono
+
+      - uses: actions/checkout@v4
+
+      - name: Set up a user and a locale like a desktop's
+        # The tests write under a home of their own, as an ordinary user does; and the container generates no locale,
+        # where a desktop has at least English's for numbers and dates.
+        run: |
+          useradd -m tester
+          chown -R tester .
+          sed -i 's/^#en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
+          locale-gen
+
+      - name: Format
+        run: su tester -c 'cargo fmt --check'
+
+      - name: Lint
+        run: su tester -c 'cargo clippy --locked --all-targets --all-features -- -D warnings'
+
+      - name: Test
+        # Everything that needs no display: the theme and its palette, Hyprland's rounding against a hyprctl and an
+        # event socket of the test's own, the language and the catalogs, the portal file picker against a portal of
+        # the test's own.
+        run: su tester -c 'LANG=en_US.UTF-8 cargo test --locked --all-features'
+
+      - name: Test with GTK running
+        # `cargo test` lists these as ignored: they need a display. The script starts a broadway display, which
+        # shows nothing, with a private home, and runs them there.
+        run: su tester -c 'LANG=en_US.UTF-8 dev/gtk-tests.sh --locked'
+
+      - name: Drive the gallery by script
+        # The widgets as an app has them, driven by key presses and clicks on a broadway display of their own; any
+        # GLib warning fails the run. The last script must fail: it has the gallery log a critical.
+        run: |
+          su tester -c 'cargo build --locked --example gallery --features qa'
+          su tester -c 'LANG=en_US.UTF-8 dev/qa.sh target/debug/examples/gallery dev/qa/gallery.jsonl'
+          su tester -c 'LANG=en_US.UTF-8 dev/qa.sh target/debug/examples/gallery dev/qa/icons.jsonl'
+          su tester -c 'LANG=en_US.UTF-8 dev/qa.sh target/debug/examples/gallery dev/qa/close.jsonl'
+          if su tester -c 'LANG=en_US.UTF-8 dev/qa.sh target/debug/examples/gallery dev/qa/critical.jsonl'; then
+            echo "a GLib critical did not fail the run" >&2
+            exit 1
+          fi

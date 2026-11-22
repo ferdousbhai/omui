@@ -298,6 +298,17 @@ fn shortcuts(app: &gtk::Application, window: &gtk::ApplicationWindow, content: &
         })),
     ));
     window.add_controller(refresh);
+    // r alone toasts; Shift+R is the window's reload below, which r must leave alone, though r's shortcut has the
+    // keys first. dev/qa/gallery.jsonl presses both.
+    omui::on_key(window, "r", {
+        let shell = Rc::downgrade(shell);
+        move || {
+            trace("shortcut: r");
+            if let Some(shell) = shell.upgrade() {
+                shell.toast("Lower-case r");
+            }
+        }
+    });
     // Two keys as a mail app has them: `?` opens a window of its own, which Escape closes, and Shift+R, told apart from
     // r by the key's own symbol, reloads. dev/qa/gallery.jsonl presses both.
     let keys = gtk::EventControllerKey::new();
@@ -324,6 +335,33 @@ fn shortcuts(app: &gtk::Application, window: &gtk::ApplicationWindow, content: &
         }
     });
     window.add_controller(keys);
+    // omui's own keys: F1 lists the shortcuts in its overlay (as an app that is typed into has it, since `?` here
+    // opens a window), and `g` alone toasts unless a field has the keyboard. dev/qa/gallery.jsonl presses both.
+    let overlay = omui::ShortcutOverlay::new(|| {
+        vec![
+            omui::ShortcutSection::new(
+                "This window",
+                &[
+                    ("F1", "Show or hide the shortcuts"),
+                    ("?", "The shortcuts in a window of their own"),
+                    ("F5", "Refresh"),
+                    ("Shift+R", "Reload"),
+                    ("Ctrl+U", "Upload"),
+                ],
+            ),
+            omui::ShortcutSection::new("Anywhere but a text field", &[("G", "A single key")]),
+        ]
+    });
+    overlay.install(window, true);
+    omui::on_key(window, "g", {
+        let shell = Rc::downgrade(shell);
+        move || {
+            trace("shortcut: single key");
+            if let Some(shell) = shell.upgrade() {
+                shell.toast("Single key");
+            }
+        }
+    });
     // For dev/qa.sh's proof that a GLib critical fails a QA run: a real one, from GTK, as an app's mistake would log.
     #[cfg(feature = "qa")]
     {
@@ -1069,7 +1107,26 @@ fn dialogs(app: &gtk::Application, openers: &mut Openers) -> gtk::ScrolledWindow
     }));
     column.append(&row(&[&confirm, &send, &rename, &uploading]));
     column.append(&row(&[&tall, &alert, &about, &window]));
-    column.append(&row(&[&log]));
+    // The desktop's file chooser, through its portal. dev/qa/gallery.jsonl answers it by script (`picker`), a
+    // failure among the answers, as a desktop without a portal would give.
+    let picker = Rc::new(omui::PortalFilePicker::new());
+    let choose = gtk::Button::with_label("Choose a file…");
+    choose.connect_clicked({
+        let said = said.clone();
+        move |_| {
+            let said = said.clone();
+            omui::FilePicker::open(
+                &*picker,
+                omui::PickOptions::new("Choose a file"),
+                Box::new(move |picked| match picked {
+                    Ok(files) => said(&format!("picked: {}", files[0].display())),
+                    Err(omui::PickError::Cancelled) => said("picker: closed"),
+                    Err(error) => said(&format!("picker: {error}")),
+                }),
+            );
+        }
+    });
+    column.append(&row(&[&log, choose.upcast_ref()]));
     column.append(&answer);
     scroll
 }

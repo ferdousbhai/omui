@@ -72,6 +72,14 @@ pub fn attach(app: &gtk::Application) {
         require_hidden_display();
         draw_whole();
     });
+    // The app may end on its own, after `close`: what GLib logged since the last answer fails the run all the same.
+    app.connect_shutdown(|_| {
+        let logged = std::mem::take(&mut *LOGGED.lock().unwrap_or_else(|e| e.into_inner()));
+        if !logged.is_empty() {
+            eprintln!("omui qa: logged after the last answer: {}", logged.join("; "));
+            std::process::exit(1);
+        }
+    });
     let started = Rc::new(Cell::new(false));
     for signal in ["activate", "open"] {
         let started = started.clone();
@@ -497,6 +505,51 @@ impl Qa {
                 }
                 Ok(Map::from_iter([("widgets".to_owned(), found.into())]))
             }
+            "language" => {
+                let code = command
+                    .get("code")
+                    .and_then(Value::as_str)
+                    .ok_or("`language` needs `code`, as \"da\"")?;
+                if let Some(path) = command.get("catalog").and_then(Value::as_str) {
+                    let catalog =
+                        std::fs::read_to_string(beside_script(path)).map_err(|e| format!("the catalog {path}: {e}"))?;
+                    crate::json::parse(&catalog).map_err(|e| format!("the catalog {path}: {e}"))?;
+                    crate::i18n::register(code, &catalog);
+                }
+                if command.get("made_up").and_then(Value::as_bool) == Some(true) {
+                    crate::i18n::register_made_up(code);
+                }
+                crate::i18n::set_language(code);
+                Ok(Map::from_iter([(
+                    "language".to_owned(),
+                    crate::i18n::language().into(),
+                )]))
+            }
+            "close" => {
+                // After the answer has gone out: the application may end with its last window, and then nothing
+                // more is read. Each window closes as its close button would close it, so one may ask first.
+                let app = self.app.downgrade();
+                glib::idle_add_local_once(move || {
+                    for window in app.upgrade().map(|app| app.windows()).unwrap_or_default() {
+                        window.close();
+                    }
+                });
+                Ok(Map::new())
+            }
+            "picker" => {
+                let picked = match (command.get("fail").and_then(Value::as_str), command.get("files")) {
+                    (Some(kind), None) => Err(scripted_failure(kind)?),
+                    (None, Some(Value::Array(files))) => Ok(files
+                        .iter()
+                        .map(|file| file.as_str().map(beside_script))
+                        .collect::<Option<Vec<_>>>()
+                        .filter(|files| !files.is_empty())
+                        .ok_or("`files` is a list of paths, at least one")?),
+                    _ => return Err("`picker` needs `fail` or `files`, not both".to_owned()),
+                };
+                crate::picker::script(picked);
+                Ok(Map::new())
+            }
             "" => Err("a command names what to do in `do`".to_owned()),
             _ => Err(format!("no such command: {verb}")),
         }
@@ -771,6 +824,59 @@ impl Qa {
         let ok = !failed && answer("quit", Ok(Map::new()));
         std::process::exit(if ok { 0 } else { 1 });
     }
+}
+
+/// The failure `picker` names, as omui's pickers would give it on a desktop that fails that way.
+/// A path a script names (a `language` catalog, a `picker` file) as the app is to read it. A relative one is the
+/// script's own neighbour when there is a file there: an app's QA runs it from a directory of its own (where its
+/// shots go), not from the one the script was written in. Failing that it stays as given, read from the working
+/// directory as before, so an absolute path, or a file copied to that directory, is read where it always was.
+fn beside_script(path: &str) -> std::path::PathBuf {
+    resolve(path, script_dir().as_deref())
+}
+
+/// [`beside_script`] with the script's directory given.
+fn resolve(path: &str, script_dir: Option<&std::path::Path>) -> std::path::PathBuf {
+    let given = std::path::PathBuf::from(path);
+    if given.is_absolute() {
+        return given;
+    }
+    script_dir
+        .map(|dir| dir.join(&given))
+        .filter(|beside| beside.exists())
+        .unwrap_or(given)
+}
+
+/// The directory of the script being run, read once: `OMUI_QA_SCRIPT` names the script, as dev/qa.sh sets it and an
+/// app's own runner that hands the app a rewritten copy sets it to the original; without it, the file stdin is read
+/// from, when that is a file and not a pipe.
+fn script_dir() -> Option<std::path::PathBuf> {
+    static DIR: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let script = std::env::var_os("OMUI_QA_SCRIPT")
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::fs::read_link("/proc/self/fd/0").ok())
+            .filter(|script| script.is_file())?;
+        let script = std::fs::canonicalize(&script).unwrap_or(script);
+        script.parent().map(std::path::Path::to_owned)
+    })
+    .clone()
+}
+
+fn scripted_failure(kind: &str) -> Result<crate::PickError, String> {
+    use crate::{PickDetail, PickError};
+    Ok(match kind {
+        "cancel" => PickError::Cancelled,
+        "unavailable" => PickError::Unavailable(PickDetail::new("no portal (a QA script's)")),
+        "refused" => PickError::Refused(PickDetail::new("no backend (a QA script's)")),
+        "no-answer" => PickError::NoAnswer,
+        "lost" => PickError::Lost,
+        _ => {
+            return Err(format!(
+                "no such failure: {kind} (cancel, unavailable, refused, no-answer, lost)"
+            ));
+        }
+    })
 }
 
 /// What a command names: a role, a name, and an ancestor to look in.
@@ -1350,5 +1456,24 @@ mod tests {
         assert!(meets(&json!(36), &json!({"min": 30, "max": 36})) && !meets(&json!(36), &json!({"max": 35})));
         assert!(!meets(&json!("36"), &json!({"min": 30})) && !meets(&json!(36), &json!({"least": 30})));
         assert!(meets(&json!({"role": "button"}), &json!({"role": "button"})));
+    }
+
+    /// A script's relative path is its neighbour's when there is one, and otherwise read as it always was, from the
+    /// working directory; an absolute one is left alone.
+    #[test]
+    fn a_scripts_relative_path_is_read_beside_the_script_first() {
+        let dir = crate::testing::temp_dir("qa-paths");
+        std::fs::write(dir.join("da.json"), "{}").unwrap();
+        assert_eq!(resolve("da.json", Some(&dir)), dir.join("da.json"));
+        assert_eq!(
+            resolve("elsewhere.json", Some(&dir)),
+            std::path::PathBuf::from("elsewhere.json")
+        );
+        assert_eq!(resolve("da.json", None), std::path::PathBuf::from("da.json"));
+        assert_eq!(
+            resolve("/tmp/a.txt", Some(&dir)),
+            std::path::PathBuf::from("/tmp/a.txt")
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

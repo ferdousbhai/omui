@@ -1,6 +1,6 @@
 [package]
 name = "omui"
-version = "0.5.7"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.92"
 # The code is MIT; the bundled icons are Lucide's (THIRD_PARTY_NOTICES.md).
@@ -17,6 +17,9 @@ qa = ["dev", "dep:serde_json"]
 
 [dependencies]
 gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
+# The one dependency beyond gtk4, from the same gtk-rs release: GTK names an application's Wayland windows by its
+# dotted GApplication id, and only this crate's `WaylandToplevel` can name them by the app's short name instead.
+gdk-wayland = { package = "gdk4-wayland", version = "0.11" }
 serde_json = { version = "1", optional = true }
 
 [build-dependencies]

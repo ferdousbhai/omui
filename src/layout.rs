@@ -3,8 +3,10 @@
 //! `OverlaySplitView`, `NavigationView`, `ViewSwitcher`, `Clamp`, `PreferencesPage` and `Breakpoint` do.
 //!
 //! GTK has no signal for a widget's width, and a widget cannot be shown or hidden while the window is being laid
-//! out. So whatever here follows a width acts on the frame after the width changed, from a tick callback: a split
-//! when its layout was given a width that calls for it, `on_narrow` and `tabs` by looking once a frame.
+//! out. So whatever here follows a width acts once a layout has given the widget one: a split on the frame after
+//! its layout was handed a width that calls for it, `on_narrow` and `tabs` after each layout of their window, which
+//! the window's frame clock announces. Nothing looks once a frame: a window that is not being resized or redrawn
+//! costs nothing.
 
 use std::{
     cell::{Cell, RefCell},
@@ -30,19 +32,60 @@ pub fn on_narrow(widget: &impl IsA<gtk::Widget>, below_px: i32, f: impl Fn(bool)
     watch_width(widget.as_ref(), |widget| widget.width(), below_px, f);
 }
 
+/// Follows `width` of `widget` across `below_px` without a timer or a tick callback, either of which would wake the
+/// app sixty times a second for as long as the widget lived. A width only changes in a layout, and the frame clock
+/// of the widget's window says when one has been done: it runs that phase when something asked for it and not
+/// otherwise. The clock is the window's, so it is followed from when the widget is realized until it no longer is.
 fn watch_width(widget: &gtk::Widget, width: fn(&gtk::Widget) -> i32, below_px: i32, f: impl Fn(bool) + 'static) {
     let was = Cell::new(None);
-    widget.add_tick_callback(move |widget, _| {
+    let look = Rc::new(move |widget: &gtk::Widget| {
         let width = width(widget);
-        // No width yet: the first frame comes before the first layout.
+        // No width yet: the widget has not been laid out.
         if width > 0 {
             let narrow = width < below_px;
             if was.replace(Some(narrow)) != Some(narrow) {
                 f(narrow);
             }
         }
-        glib::ControlFlow::Continue
     });
+    let following: Rc<RefCell<Option<(gdk::FrameClock, glib::SignalHandlerId)>>> = Rc::default();
+    let follow = {
+        let (look, following) = (look.clone(), following.clone());
+        move |widget: &gtk::Widget| {
+            let Some(clock) = widget.frame_clock() else { return };
+            let weak = widget.downgrade();
+            let look = look.clone();
+            // After GTK's own handler, which is the one that lays the window out, whichever was connected first. By
+            // then the layout is over, so `f` may show and hide widgets: that asks for another layout, and the
+            // clock runs one.
+            let handler = clock.connect_local("layout", true, move |_| {
+                if let Some(widget) = weak.upgrade() {
+                    look(&widget);
+                }
+                None
+            });
+            if let Some((clock, handler)) = following.replace(Some((clock, handler))) {
+                clock.disconnect(handler);
+            }
+        }
+    };
+    widget.connect_realize(follow.clone());
+    widget.connect_unrealize(move |_| {
+        if let Some((clock, handler)) = following.take() {
+            clock.disconnect(handler);
+        }
+    });
+    if widget.is_realized() {
+        follow(widget);
+        // Laid out already, and nothing may ask for a layout again for a while: looked at once, as soon as the
+        // caller has finished setting up what `f` reaches.
+        let weak = widget.downgrade();
+        glib::idle_add_local_once(move || {
+            if let Some(widget) = weak.upgrade() {
+                look(&widget);
+            }
+        });
+    }
 }
 
 /// What has the keyboard when it is inside `widget`.
@@ -235,7 +278,15 @@ mod imp {
 
         /// Where each pane on screen goes in a split `width` wide: its left edge and its width, which is never
         /// less than the pane can be. For the frame before the split collapses, the content hangs over the edge.
-        fn places(&self, sidebar: &gtk::Widget, content: &gtk::Widget, width: i32) -> Vec<(gtk::Widget, i32, i32)> {
+        ///
+        /// The sidebar is where reading starts: on the left, or on the right where text runs right to left (`rtl`).
+        fn places(
+            &self,
+            sidebar: &gtk::Widget,
+            content: &gtk::Widget,
+            width: i32,
+            rtl: bool,
+        ) -> Vec<(gtk::Widget, i32, i32)> {
             let whole = |pane: &gtk::Widget| (pane.clone(), 0, width.max(minimum_width(pane)));
             // Child visibility is the split's own switch, which `should_layout` does not look at.
             let on_screen = |pane: &gtk::Widget| in_use(pane) && pane.is_child_visible();
@@ -243,7 +294,12 @@ mod imp {
                 (true, true) => {
                     let beside = self.sidebar(sidebar, content, width);
                     let rest = (width - beside).max(minimum_width(content));
-                    vec![(sidebar.clone(), 0, beside), (content.clone(), beside, rest)]
+                    if rtl {
+                        let edge = width - beside;
+                        vec![(sidebar.clone(), edge, beside), (content.clone(), edge - rest, rest)]
+                    } else {
+                        vec![(sidebar.clone(), 0, beside), (content.clone(), beside, rest)]
+                    }
                 }
                 (true, false) => vec![whole(sidebar)],
                 (false, true) => vec![whole(content)],
@@ -286,7 +342,7 @@ mod imp {
                 // `allocate`.
                 let mut tallest = (0, 0);
                 let width = if for_size < 0 { widget.width() } else { for_size };
-                for (pane, _, pane_width) in self.places(&sidebar, &content, width) {
+                for (pane, _, pane_width) in self.places(&sidebar, &content, width, false) {
                     let minimum = pane.measure(orientation, -1).0;
                     let natural = pane.measure(orientation, if for_size < 0 { -1 } else { pane_width }).1;
                     tallest = (tallest.0.max(minimum), tallest.1.max(natural.max(minimum)));
@@ -315,11 +371,17 @@ mod imp {
             let Some((sidebar, content)) = Self::panes(widget) else {
                 return;
             };
-            let places = self.places(&sidebar, &content, width);
+            let rtl = widget.direction() == gtk::TextDirection::Rtl;
+            let places = self.places(&sidebar, &content, width, rtl);
             if let Some(divider) = content.next_sibling() {
-                // Centred on the edge between the panes, over both; off the split while one pane is on screen.
+                // Centred on the edge between the panes, over both; off the split while one pane is on screen. The
+                // edge is where the pane on the right starts.
                 let divider_width = minimum_width(&divider);
-                let edge = if places.len() == 2 { places[1].1 } else { -divider_width };
+                let edge = if places.len() == 2 {
+                    places[usize::from(!rtl)].1
+                } else {
+                    -divider_width
+                };
                 divider.measure(gtk::Orientation::Vertical, divider_width);
                 place(&divider, edge - divider_width / 2, divider_width, height, baseline);
                 // Here, where the width they depend on is known: a width set before the window is first laid out,
@@ -647,7 +709,9 @@ impl Split {
             .focusable(true)
             .cursor(&gdk::Cursor::from_name("col-resize", None).expect("GTK's cursor names"))
             .build();
-        divider.update_property(&[gtk::accessible::Property::Label("Sidebar width")]);
+        crate::i18n::bind(&divider, |divider| {
+            divider.update_property(&[gtk::accessible::Property::Label(&crate::i18n::tr("Sidebar width"))]);
+        });
         let keys = gtk::EventControllerKey::new();
         keys.connect_key_pressed({
             let state = Rc::downgrade(state);
@@ -660,9 +724,15 @@ impl Split {
                 }
                 let (least, most) = split.sidebar_limits();
                 let width = split.shown_sidebar_width();
+                // The arrows move the divider the way they point, which widens a sidebar on the right the other way.
+                let step = if split.widget.direction() == gtk::TextDirection::Rtl {
+                    -DIVIDER_STEP
+                } else {
+                    DIVIDER_STEP
+                };
                 let to = match key {
-                    gdk::Key::Left | gdk::Key::KP_Left => width - DIVIDER_STEP,
-                    gdk::Key::Right | gdk::Key::KP_Right => width + DIVIDER_STEP,
+                    gdk::Key::Left | gdk::Key::KP_Left => width - step,
+                    gdk::Key::Right | gdk::Key::KP_Right => width + step,
                     gdk::Key::Home | gdk::Key::KP_Home => least,
                     gdk::Key::End | gdk::Key::KP_End => most,
                     _ => return glib::Propagation::Proceed,
@@ -803,7 +873,9 @@ fn divider_drag(state: &Rc<SplitState>) -> gtk::GestureDrag {
         let (state, from) = (Rc::downgrade(state), from.clone());
         move |_, dx, _| {
             if let (Some(split), Some(from)) = (state.upgrade().as_ref().and_then(Split::of), from.get()) {
-                split.resize(from + dx as i32);
+                // Dragged left, a sidebar on the right grows.
+                let rtl = split.widget.direction() == gtk::TextDirection::Rtl;
+                split.resize(if rtl { from - dx as i32 } else { from + dx as i32 });
             }
         }
     });

@@ -1,8 +1,14 @@
 /* omui's stylesheet. Colours are only the @om_* tokens theme.rs defines from the Omarchy theme, tinted with alpha();
-   no hex. The conventions (chrome on the surface colour with hairline borders, 5-6px corners, accent tints for hover
-   and selection, accent focus outlines, thin accent scrollbars) follow Strata (github.com/lgse/strata, MIT,
-   src/style.css), so an omui app and Strata read as one desktop. GTK's built-in theme is restated under this sheet
-   (theme.rs), so each rule here replaces that theme's look for one widget; a widget with no rule keeps GTK's. */
+   no hex. The conventions (chrome on the surface colour with hairline borders, accent tints for hover and selection,
+   accent focus outlines, thin accent scrollbars) follow Strata (github.com/lgse/strata, MIT, src/style.css), so an
+   omui app and Strata read as one desktop. GTK's built-in theme is restated under this sheet (theme.rs), so each
+   rule here replaces that theme's look for one widget; a widget with no rule keeps GTK's.
+
+   Corners are Hyprland's window rounding, which theme.rs follows and defines as variables: --om-radius for a panel,
+   a dialog, a button or a field; --om-radius-inner, a pixel less, for what sits inside a border; --om-radius-small,
+   4px at most, for a row, a menu item or a check; --om-radius-tiny, 2px at most, for a track. None is written in
+   pixels here (theme.rs tests that), so a square desktop has square widgets. Only what is round by nature keeps its
+   shape: a radio, a switch, a knob, an avatar, and the buttons an app asks to be a pill or a circle. */
 
 /* The interface font, set where widgets inherit it from, so an app's rule for a widget or a pane can name another. */
 window, popover, tooltip { font-family: "JetBrains Mono", "JetBrainsMono Nerd Font", monospace; }
@@ -50,7 +56,7 @@ spinner { color: @om_accent; }
 
 progressbar > trough, progressbar > trough > progress {
   border: none;
-  border-radius: 2px;
+  border-radius: var(--om-radius-tiny);
   box-shadow: none;
   /* The built-in theme pulls the bar over the trough's border with a negative margin. */
   margin: 0;
@@ -64,7 +70,7 @@ progressbar > text { color: @om_dim_text; font-size: 0.85em; }
 tooltip {
   background: @om_surface;
   border: 1px solid alpha(@om_border, 0.6);
-  border-radius: 5px;
+  border-radius: var(--om-radius-small);
   box-shadow: none;
   color: @om_text;
   padding: 4px 8px;
@@ -176,7 +182,7 @@ headerbar .subtitle { color: @om_dim_text; font-size: 0.85em; opacity: 1; }
 button {
   background: alpha(@om_text, 0.06);
   border: 1px solid alpha(@om_border, 0.6);
-  border-radius: 5px;
+  border-radius: var(--om-radius);
   box-shadow: none;
   color: @om_text;
   min-height: 24px;
@@ -241,7 +247,7 @@ button.chip:checked, button.chip.active { background: alpha(@om_accent, 0.18); b
 entry {
   background: alpha(@om_text, 0.04);
   border: 1px solid alpha(@om_border, 0.6);
-  border-radius: 5px;
+  border-radius: var(--om-radius);
   box-shadow: none;
   caret-color: @om_accent;
   color: @om_text;
@@ -265,7 +271,7 @@ textview > border { background: transparent; }
 spinbutton {
   background: alpha(@om_text, 0.04);
   border: 1px solid alpha(@om_border, 0.6);
-  border-radius: 5px;
+  border-radius: var(--om-radius);
   color: @om_text;
   min-height: 26px;
 }
@@ -282,29 +288,29 @@ spinbutton > button {
   min-width: 16px;
   padding: 0 5px;
 }
-spinbutton > button:last-child { border-radius: 0 4px 4px 0; }
+spinbutton > button:last-child { border-radius: 0 var(--om-radius-inner) var(--om-radius-inner) 0; }
 spinbutton > button:hover { background: alpha(@om_accent, 0.15); color: @om_text; }
 spinbutton > button:active { background: alpha(@om_accent, 0.22); }
 spinbutton > button:disabled { background: transparent; color: alpha(@om_text, 0.25); }
 spinbutton.vertical > text { min-height: 26px; }
 spinbutton.vertical > button { border-left: none; border-radius: 0; min-height: 20px; }
-spinbutton.vertical > button.up { border-bottom: 1px solid alpha(@om_border, 0.6); border-radius: 4px 4px 0 0; }
-spinbutton.vertical > button.down { border-top: 1px solid alpha(@om_border, 0.6); border-radius: 0 0 4px 4px; }
+spinbutton.vertical > button.up { border-bottom: 1px solid alpha(@om_border, 0.6); border-radius: var(--om-radius-inner) var(--om-radius-inner) 0 0; }
+spinbutton.vertical > button.down { border-top: 1px solid alpha(@om_border, 0.6); border-radius: 0 0 var(--om-radius-inner) var(--om-radius-inner); }
 
 /* ------------------------------------------------------------------------------------------ choices and ranges -- */
-checkbutton { border-radius: 5px; border-spacing: 8px; color: @om_text; padding: 3px 4px; }
+checkbutton { border-radius: var(--om-radius-small); border-spacing: 8px; color: @om_text; padding: 3px 4px; }
 checkbutton:disabled { color: alpha(@om_text, 0.4); }
 check, radio {
   background: alpha(@om_text, 0.04);
   border: 1px solid @om_border;
   box-shadow: none;
-  color: @om_bg;
+  color: @om_accent_fg;
   min-height: 14px;
   min-width: 14px;
   transition: background 160ms ease-out, border-color 160ms ease-out;
   -gtk-icon-size: 12px;
 }
-check { border-radius: 3px; }
+check { border-radius: var(--om-radius-small); }
 radio { border-radius: 100%; }
 check:hover, radio:hover { border-color: @om_accent; }
 check:checked, check:indeterminate, radio:indeterminate { background: @om_accent; border-color: @om_accent; }
@@ -317,10 +323,12 @@ radio:checked {
 check:disabled, radio:disabled { opacity: 0.5; }
 
 /* On, the track is filled as a check is. A tint alone cannot be told from off in a theme without a hue. */
+/* A check, the knob of a switch that is on and a chosen day sit on the accent, in the colour that reads there
+   (@om_accent_fg, black or white): an accent is as often lighter than the background as darker. */
 switch {
   background: @om_muted;
   border: 1px solid alpha(@om_border, 0.8);
-  border-radius: 24px;
+  border-radius: 999px;
   box-shadow: none;
   min-height: 20px;
   min-width: 40px;
@@ -331,14 +339,14 @@ switch:disabled { opacity: 0.5; }
 switch > slider {
   background: @om_dim_text;
   border: none;
-  border-radius: 20px;
+  border-radius: 999px;
   box-shadow: none;
   margin: 1px;
   min-height: 18px;
   min-width: 18px;
   transition: background 160ms ease-out;
 }
-switch:checked > slider { background: @om_bg; }
+switch:checked > slider { background: @om_accent_fg; }
 /* The I and O glyphs of the built-in theme. */
 switch > image { -gtk-icon-filter: opacity(0); }
 
@@ -347,12 +355,12 @@ scale:disabled { opacity: 0.5; }
 scale > trough {
   background: alpha(@om_border, 0.35);
   border: none;
-  border-radius: 2px;
+  border-radius: var(--om-radius-tiny);
   min-height: 4px;
   min-width: 4px;
   outline: none;
 }
-scale > trough > highlight, scale > trough > fill { border: none; border-radius: 2px; margin: 0; }
+scale > trough > highlight, scale > trough > fill { border: none; border-radius: var(--om-radius-tiny); margin: 0; }
 scale > trough > highlight { background: @om_accent; }
 scale > trough > fill { background: alpha(@om_accent, 0.35); }
 scale > trough > slider {
@@ -379,7 +387,7 @@ dropdown arrow { color: @om_dim_text; }
 dropdown > popover { margin-top: 4px; }
 dropdown > popover.menu > contents { padding: 5px; }
 dropdown popover listview { margin: 0; }
-dropdown popover listview > row { border-radius: 5px; min-height: 22px; padding: 2px 8px; }
+dropdown popover listview > row { border-radius: var(--om-radius-small); min-height: 22px; padding: 2px 8px; }
 dropdown popover listview > row:hover, dropdown popover listview > row:selected,
 dropdown popover listview > row:selected:hover {
   background: alpha(@om_accent, 0.15);
@@ -395,9 +403,9 @@ dropdown popover .dropdown-searchbar {
 /* ------------------------------------------------------------------------------------------- lists and popovers -- */
 list, listview, flowbox, gridview, columnview { background: transparent; color: @om_text; }
 /* Every row gets omui's hover and selection in place of the built-in theme's. Padding is the row kind's own. */
-list > row, listview > row { border-radius: 6px; transition: background-color 160ms ease-out; }
+list > row, listview > row { border-radius: var(--om-radius-small); transition: background-color 160ms ease-out; }
 list > row.activatable:hover, listview > row.activatable:hover { background: alpha(@om_text, 0.06); }
-flowbox > flowboxchild, gridview > child { border-radius: 6px; }
+flowbox > flowboxchild, gridview > child { border-radius: var(--om-radius); }
 list > row:selected, list > row:selected:hover, listview > row:selected, listview > row:selected:hover,
 flowbox > flowboxchild:selected, gridview > child:selected {
   background: alpha(@om_accent, 0.18);
@@ -407,7 +415,7 @@ flowbox > flowboxchild:selected, gridview > child:selected {
 popover > contents {
   background: @om_surface;
   border: 1px solid alpha(@om_border, 0.6);
-  border-radius: 9px;
+  border-radius: var(--om-radius);
   box-shadow: 0 4px 14px alpha(black, 0.3);
   color: @om_text;
   padding: 5px;
@@ -419,7 +427,7 @@ popover.menu > contents { padding: 5px; }
 popover.menu separator.horizontal { margin: 5px 0; }
 modelbutton, popover.menu modelbutton {
   background: transparent;
-  border-radius: 5px;
+  border-radius: var(--om-radius-small);
   color: @om_text;
   min-height: 26px;
   padding: 0 10px;
@@ -446,17 +454,17 @@ popover.menu modelbutton.title { font-weight: 650; }
 popover.menu accelerator { color: @om_dim_text; }
 
 /* ------------------------------------------------------------------------------------------------- containers -- */
-frame { border: 1px solid alpha(@om_border, 0.6); border-radius: 6px; box-shadow: none; }
+frame { border: 1px solid alpha(@om_border, 0.6); border-radius: var(--om-radius); box-shadow: none; }
 /* The frame's own label, not a label that is its content. */
 frame > label:first-child:not(:only-child) { color: @om_dim_text; font-size: 0.85em; font-weight: 650; margin: 4px 8px; }
 
 expander { color: @om_dim_text; }
-expander-widget > box > title { border-radius: 5px; border-spacing: 4px; padding: 2px 6px 2px 2px; }
+expander-widget > box > title { border-radius: var(--om-radius-small); border-spacing: 4px; padding: 2px 6px 2px 2px; }
 expander-widget > box > title:hover { background: alpha(@om_text, 0.06); }
 expander-widget > box > title:hover > expander { color: @om_text; }
 
 notebook, notebook > stack:not(:only-child) { background: transparent; }
-notebook.frame { border: 1px solid alpha(@om_border, 0.6); border-radius: 6px; }
+notebook.frame { border: 1px solid alpha(@om_border, 0.6); border-radius: var(--om-radius); }
 /* The strip keeps the built-in theme's geometry, which puts its one border on the side that faces the page. */
 notebook > header { background: transparent; border-color: alpha(@om_border, 0.6); }
 notebook > header > tabs > tab {
@@ -481,7 +489,7 @@ notebook > header > tabs > tab button.flat { color: @om_dim_text; }
 calendar {
   background: transparent;
   border: 1px solid alpha(@om_border, 0.6);
-  border-radius: 6px;
+  border-radius: var(--om-radius);
   color: @om_text;
   padding: 4px;
 }
@@ -489,7 +497,7 @@ calendar > header { border-bottom: 1px solid alpha(@om_border, 0.35); padding-bo
 calendar > header > button {
   background: transparent;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--om-radius-small);
   color: @om_dim_text;
   min-width: 24px;
   padding: 2px;
@@ -498,7 +506,7 @@ calendar > header > button:hover { background: alpha(@om_accent, 0.15); color: @
 calendar > header > button:active { background: alpha(@om_accent, 0.22); }
 calendar > header > button:disabled { background: transparent; }
 calendar > grid > label.day-name, calendar > grid > label.week-number { color: @om_dim_text; font-size: 0.85em; }
-calendar > grid > label.day-number { border-radius: 5px; padding: 4px; }
+calendar > grid > label.day-number { border-radius: var(--om-radius-small); padding: 4px; }
 calendar > grid > label.day-number.other-month { color: alpha(@om_text, 0.35); }
 /* A day the app marked. */
 calendar > grid > label.day-number:checked { background: alpha(@om_accent, 0.12); }
@@ -506,7 +514,7 @@ calendar > grid > label.today { box-shadow: inset 0 0 0 1px alpha(@om_accent, 0.
 calendar > grid > label.day-number:selected, calendar > grid > label.today:selected {
   background: @om_accent;
   box-shadow: none;
-  color: @om_bg;
+  color: @om_accent_fg;
   font-weight: 650;
 }
 calendar > grid > label.day-number:selected:disabled { background: alpha(@om_accent, 0.5); }
@@ -525,9 +533,9 @@ scrollbar.vertical, scrollbar.vertical > range > trough, scrollbar.vertical > ra
 scrollbar.horizontal, scrollbar.horizontal > range > trough, scrollbar.horizontal > range > trough > slider {
   min-height: 4px;
 }
-scrollbar > range > trough { background: alpha(@om_border, 0.25); border-radius: 2px; }
+scrollbar > range > trough { background: alpha(@om_border, 0.25); border-radius: var(--om-radius-tiny); }
 scrollbar:hover > range > trough, scrollbar.dragging > range > trough { background: alpha(@om_border, 0.45); }
-scrollbar > range > trough > slider { background: @om_accent; border: none; border-radius: 2px; margin: 0; }
+scrollbar > range > trough > slider { background: @om_accent; border: none; border-radius: var(--om-radius-tiny); margin: 0; }
 scrollbar.vertical > range > trough > slider { min-height: 32px; }
 scrollbar.horizontal > range > trough > slider { min-width: 32px; }
 
@@ -551,7 +559,7 @@ scrollbar.horizontal > range > trough > slider { min-width: 32px; }
 
 .badge {
   background: alpha(@om_accent, 0.18);
-  border-radius: 4px;
+  border-radius: var(--om-radius-small);
   color: @om_text;
   font-size: 0.8em;
   font-weight: 650;
@@ -575,7 +583,7 @@ scrollbar.horizontal > range > trough > slider { min-width: 32px; }
 button.sidebar-footer {
   background: transparent;
   border-color: transparent;
-  border-radius: 6px;
+  border-radius: var(--om-radius);
   color: @om_dim_text;
   font-size: 0.88em;
   margin: 5px;
@@ -623,12 +631,12 @@ button.tab:checked image { color: @om_accent; }
 .boxed-list {
   background: alpha(@om_text, 0.03);
   border: 1px solid alpha(@om_border, 0.6);
-  border-radius: 6px;
+  border-radius: var(--om-radius);
 }
 .boxed-list > row { border-bottom: 1px solid alpha(@om_border, 0.35); border-radius: 0; }
-.boxed-list > row:first-child { border-radius: 5px 5px 0 0; }
-.boxed-list > row:last-child { border-bottom: none; border-radius: 0 0 5px 5px; }
-.boxed-list > row:only-child { border-radius: 5px; }
+.boxed-list > row:first-child { border-radius: var(--om-radius-inner) var(--om-radius-inner) 0 0; }
+.boxed-list > row:last-child { border-bottom: none; border-radius: 0 0 var(--om-radius-inner) var(--om-radius-inner); }
+.boxed-list > row:only-child { border-radius: var(--om-radius-inner); }
 
 row.om-row { min-height: 30px; padding: 7px 12px; }
 row.om-row > box, .row-side { border-spacing: 10px; }
@@ -683,7 +691,7 @@ row.expander-row > box > revealer > list > row:last-child { border-bottom: none;
 .result {
   background: transparent;
   border: 1px solid alpha(@om_border, 0.35);
-  border-radius: 6px;
+  border-radius: var(--om-radius);
   color: @om_text;
   padding: 10px;
   transition: background-color 160ms ease-out, border-color 160ms ease-out;
@@ -717,7 +725,7 @@ row.expander-row > box > revealer > list > row:last-child { border-bottom: none;
 .toast {
   background: @om_muted;
   border: 1px solid alpha(@om_border, 0.8);
-  border-radius: 6px;
+  border-radius: var(--om-radius);
   border-spacing: 6px;
   box-shadow: 0 4px 14px alpha(black, 0.3);
   color: @om_text;
@@ -733,7 +741,7 @@ row.expander-row > box > revealer > list > row:last-child { border-bottom: none;
 .dialog {
   background: @om_surface;
   border: 1px solid alpha(@om_border, 0.6);
-  border-radius: 9px;
+  border-radius: var(--om-radius);
   box-shadow: 0 4px 14px alpha(black, 0.3);
   color: @om_text;
   margin: 24px;
@@ -756,3 +764,47 @@ window > box > .dialog { border: none; border-radius: 0; box-shadow: none; margi
   margin-top: 16px;
   padding: 12px 20px 14px;
 }
+
+/* The shortcuts overlay (keys.rs): each key of a shortcut on a cap of its own. */
+.keys { border-spacing: 4px; }
+/* Between two keys that do the same, as `? / F1` has: quieter than a key, so it does not read as one. */
+.keys-or { color: alpha(@om_text, 0.55); padding: 0 2px; }
+.keycap {
+  background: alpha(@om_text, 0.06);
+  border: 1px solid alpha(@om_border, 0.8);
+  border-radius: var(--om-radius-small);
+  font-size: 0.92em;
+  font-weight: 650;
+  min-width: 12px;
+  padding: 1px 6px;
+}
+
+/* ----------------------------------------------------------------------------------------------- right to left -- */
+/* Arabic, Hebrew, Persian and Urdu (i18n.rs sets the direction). GTK mirrors the order of a box's children, a
+   label's alignment and `start`/`end` by itself; what is written above with a left or a right is mirrored here. */
+entry > image.left:dir(rtl), entry.search > image:first-child:dir(rtl) { margin-left: 6px; margin-right: 0; }
+entry > image.right:dir(rtl), entry.search > image:last-child:dir(rtl), entry.password > image:dir(rtl) {
+  margin-left: 0;
+  margin-right: 6px;
+}
+spinbutton > button:dir(rtl) { border-left: none; border-right: 1px solid alpha(@om_border, 0.6); }
+spinbutton > button:last-child:dir(rtl) { border-radius: var(--om-radius-inner) 0 0 var(--om-radius-inner); }
+spinbutton.vertical > button:dir(rtl) { border-right: none; border-radius: 0; }
+spinbutton.vertical > button.up:dir(rtl) { border-radius: var(--om-radius-inner) var(--om-radius-inner) 0 0; }
+spinbutton.vertical > button.down:dir(rtl) { border-radius: 0 0 var(--om-radius-inner) var(--om-radius-inner); }
+dropdown > button:dir(rtl) { padding: 2px 10px 2px 8px; }
+expander-widget > box > title:dir(rtl) { padding: 2px 2px 2px 6px; }
+/* Earlier and later change sides with the reading direction, and so do the arrows that lead to them. */
+calendar:dir(rtl) > header > button:first-child > image, calendar:dir(rtl) > header > stack + button + button > image {
+  background-image: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-chevron-right-symbolic.svg"));
+}
+calendar:dir(rtl) > header > stack + button > image, calendar:dir(rtl) > header > button:last-child > image {
+  background-image: -gtk-recolor(url("resource:///io/github/ferdousbhai/omui/icons/scalable/actions/om-chevron-left-symbolic.svg"));
+}
+.sidebar:dir(rtl) { border-left: 1px solid alpha(@om_border, 0.6); border-right: none; }
+.om-split.collapsed .sidebar:dir(rtl) { border-left: none; }
+/* The divider needs nothing: the sidebar's border and the pixel beside it are the same two of its seven from
+   either side. */
+.banner:dir(rtl) { padding: 6px 12px 6px 8px; }
+.toast:dir(rtl) { padding: 4px 12px 4px 4px; }
+.dialog-close:dir(rtl) { margin: 10px 0 0 10px; }
