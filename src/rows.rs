@@ -12,7 +12,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use gtk::{gdk, glib, prelude::*};
 
-use crate::icons;
+use crate::{i18n::tr, icons};
 
 /// A titled group of rows in a bordered list (`adw::PreferencesGroup`).
 pub struct Group {
@@ -91,10 +91,76 @@ impl Group {
         }
     }
 
+    /// An empty title takes no space. It ends what [`Group::set_title_translated`] began: the title stays this
+    /// one after a switch of language.
+    pub fn set_title(&self, title: &str) {
+        crate::i18n::unbind_slot(self.widget.upcast_ref(), "title");
+        self.show_title(title);
+    }
+
+    fn show_title(&self, title: &str) {
+        self.title.set_label(title);
+        self.title.set_visible(!title.is_empty());
+        if !title.is_empty() {
+            self.widget
+                .update_relation(&[gtk::accessible::Relation::LabelledBy(&[self.title.upcast_ref()])]);
+        }
+        self.show_header();
+    }
+
+    /// Ends what [`Group::set_description_translated`] began, as [`Group::set_title`] does.
     pub fn set_description(&self, description: &str) {
+        crate::i18n::unbind_slot(self.widget.upcast_ref(), "description");
+        self.show_description(description);
+    }
+
+    fn show_description(&self, description: &str) {
         self.description.set_label(description);
         self.description.set_visible(!description.is_empty());
         self.show_header();
+    }
+
+    /// Makes `text`, translated, the title, now and after each switch of language, for as long as the group lives:
+    /// a page relabels in place, and need not be built again. `text` is the English, a string literal as
+    /// [`crate::tr`]'s is. A later call replaces this one, and [`Group::set_title`] ends it.
+    pub fn set_title_translated(&self, text: &str) {
+        let group = self.weak();
+        translated(self.widget.upcast_ref(), "title", text, move |title| {
+            if let Some(group) = group() {
+                group.show_title(title);
+            }
+        });
+    }
+
+    /// [`Group::set_title_translated`] for the description.
+    pub fn set_description_translated(&self, text: &str) {
+        let group = self.weak();
+        translated(self.widget.upcast_ref(), "description", text, move |description| {
+            if let Some(group) = group() {
+                group.show_description(description);
+            }
+        });
+    }
+
+    /// The group again from its widgets, while they live: what a listener of the language holds, which must not keep
+    /// them alive.
+    fn weak(&self) -> impl Fn() -> Option<Group> + 'static {
+        let (widget, list, header) = (self.widget.downgrade(), self.list.downgrade(), self.header.downgrade());
+        let (title, description, suffix) = (
+            self.title.downgrade(),
+            self.description.downgrade(),
+            self.suffix.downgrade(),
+        );
+        move || {
+            Some(Group {
+                widget: widget.upgrade()?,
+                list: list.upgrade()?,
+                header: header.upgrade()?,
+                title: title.upgrade()?,
+                description: description.upgrade()?,
+                suffix: suffix.upgrade()?,
+            })
+        }
     }
 
     /// A widget at the end of the title's line: a button for the whole group.
@@ -108,8 +174,9 @@ impl Group {
     }
 
     fn show_header(&self) {
+        // Each part's own flag: `is_visible` asks after the header too, which is hidden while all of them are.
         self.header
-            .set_visible(self.title.is_visible() || self.description.is_visible() || self.suffix.is_visible());
+            .set_visible(self.title.get_visible() || self.description.get_visible() || self.suffix.get_visible());
     }
 }
 
@@ -190,17 +257,75 @@ impl Row {
         self.suffixes.set_visible(true);
     }
 
+    /// Ends what [`Row::set_title_translated`] began: the title stays this one after a switch of language.
     pub fn set_title(&self, title: &str) {
+        crate::i18n::unbind_slot(self.widget.upcast_ref(), "title");
+        self.show_title(title);
+    }
+
+    fn show_title(&self, title: &str) {
         self.title.set_label(title);
         self.title.set_visible(!title.is_empty());
         self.widget.update_property(&[gtk::accessible::Property::Label(title)]);
     }
 
+    /// Ends what [`Row::set_subtitle_translated`] began, as [`Row::set_title`] does.
     pub fn set_subtitle(&self, subtitle: &str) {
+        crate::i18n::unbind_slot(self.widget.upcast_ref(), "subtitle");
+        self.show_subtitle(subtitle);
+    }
+
+    fn show_subtitle(&self, subtitle: &str) {
         self.subtitle.set_label(subtitle);
         self.subtitle.set_visible(!subtitle.is_empty());
         self.widget
             .update_property(&[gtk::accessible::Property::Description(subtitle)]);
+    }
+
+    /// Makes `text`, translated, the title, now and after each switch of language, for as long as the row lives.
+    /// `text` is the English, a string literal as [`crate::tr`]'s is. A later call replaces this one, and
+    /// [`Row::set_title`] ends it.
+    pub fn set_title_translated(&self, text: &str) {
+        let row = self.weak();
+        translated(self.widget.upcast_ref(), "title", text, move |title| {
+            if let Some(row) = row() {
+                row.show_title(title);
+            }
+        });
+    }
+
+    /// [`Row::set_title_translated`] for the subtitle.
+    pub fn set_subtitle_translated(&self, text: &str) {
+        let row = self.weak();
+        translated(self.widget.upcast_ref(), "subtitle", text, move |subtitle| {
+            if let Some(row) = row() {
+                row.show_subtitle(subtitle);
+            }
+        });
+    }
+
+    /// The row again from its widgets, while they live, as [`Group`] has it.
+    fn weak(&self) -> impl Fn() -> Option<Row> + 'static {
+        let (widget, prefixes, text) = (
+            self.widget.downgrade(),
+            self.prefixes.downgrade(),
+            self.text.downgrade(),
+        );
+        let (title, subtitle, suffixes) = (
+            self.title.downgrade(),
+            self.subtitle.downgrade(),
+            self.suffixes.downgrade(),
+        );
+        move || {
+            Some(Row {
+                widget: widget.upgrade()?,
+                prefixes: prefixes.upgrade()?,
+                text: text.upgrade()?,
+                title: title.upgrade()?,
+                subtitle: subtitle.upgrade()?,
+                suffixes: suffixes.upgrade()?,
+            })
+        }
     }
 
     /// Lets the subtitle be selected and copied: an address, a fingerprint.
@@ -373,7 +498,27 @@ pub fn password_row(title: &str) -> (Row, gtk::PasswordEntry) {
     let entry = gtk::PasswordEntry::new();
     let row = Row::field(title, &entry);
     // GTK's own peek icon comes from the desktop's icon theme, and nothing in CSS tells its two states apart.
-    let peek = icons::icon_button(icons::name::SHOW, SHOW_TEXT);
+    let peek = icons::icon_button(icons::name::SHOW, "");
+    // What the button says follows what it would do, and the language.
+    let name = |peek: &gtk::Button, shown: bool| {
+        let says = if shown {
+            tr("Hide the text")
+        } else {
+            tr("Show the text")
+        };
+        peek.set_tooltip_text(Some(&says));
+        peek.update_property(&[gtk::accessible::Property::Label(&says)]);
+    };
+    crate::i18n::bind(&peek, {
+        let entry = entry.downgrade();
+        move |peek| {
+            let text = entry
+                .upgrade()
+                .and_then(|entry| entry.delegate())
+                .and_downcast::<gtk::Text>();
+            name(peek, text.is_some_and(|text| gtk::Text::is_visible(&text)));
+        }
+    });
     peek.set_valign(gtk::Align::Center);
     peek.connect_clicked({
         let entry = entry.downgrade();
@@ -388,17 +533,12 @@ pub fn password_row(title: &str) -> (Row, gtk::PasswordEntry) {
             let shown = !gtk::Text::is_visible(&text);
             text.set_visibility(shown);
             peek.set_icon_name(if shown { icons::name::HIDE } else { icons::name::SHOW });
-            let says = if shown { HIDE_TEXT } else { SHOW_TEXT };
-            peek.set_tooltip_text(Some(says));
-            peek.update_property(&[gtk::accessible::Property::Label(says)]);
+            name(peek, shown);
         }
     });
     row.add_suffix(&peek);
     (row, entry)
 }
-
-const SHOW_TEXT: &str = "Show the text";
-const HIDE_TEXT: &str = "Hide the text";
 
 /// A row with a switch at its end (`adw::SwitchRow`).
 pub fn switch_row(title: &str, subtitle: &str, active: bool) -> (Row, gtk::Switch) {
@@ -488,6 +628,43 @@ impl ExpanderRow {
     pub fn set_expanded(&self, on: bool) {
         expand(&self.widget, &self.header.widget, &self.arrow, &self.revealer, on);
     }
+
+    pub fn set_title(&self, title: &str) {
+        self.header.set_title(title);
+    }
+
+    /// An empty subtitle takes no space.
+    pub fn set_subtitle(&self, subtitle: &str) {
+        self.header.set_subtitle(subtitle);
+    }
+
+    /// [`Row::set_title_translated`], for the header: the binding is the header row's, so that
+    /// [`ExpanderRow::set_title`] ends it as [`Row::set_title`] does.
+    pub fn set_title_translated(&self, text: &str) {
+        let header = self.header.weak();
+        translated(self.header.widget.upcast_ref(), "title", text, move |title| {
+            if let Some(header) = header() {
+                header.show_title(title);
+            }
+        });
+    }
+
+    /// [`Row::set_subtitle_translated`], for the header.
+    pub fn set_subtitle_translated(&self, text: &str) {
+        let header = self.header.weak();
+        translated(self.header.widget.upcast_ref(), "subtitle", text, move |subtitle| {
+            if let Some(header) = header() {
+                header.show_subtitle(subtitle);
+            }
+        });
+    }
+}
+
+/// Runs `set` with `text` translated, now and after each switch of language, for as long as `anchor` lives, as the
+/// binding `slot` of `anchor`: a later call for the same slot replaces it rather than adding a listener beside it.
+fn translated(anchor: &gtk::Widget, slot: &str, text: &str, set: impl Fn(&str) + 'static) {
+    let text = text.to_owned();
+    crate::i18n::bind_slot(anchor, slot, &[], move || set(&crate::i18n::translate(&text)));
 }
 
 fn expand(widget: &gtk::ListBoxRow, header: &gtk::ListBoxRow, arrow: &gtk::Image, revealer: &gtk::Revealer, on: bool) {

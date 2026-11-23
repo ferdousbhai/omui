@@ -30,6 +30,30 @@
 {"do":"key","keys":"Escape"}
 {"do":"wait","dialog":null}
 
+# 0.5.8: the language as a script sets it, from a stand-in catalog or a made-up one (every English string as
+# "[pt] …"), which an open dialog follows; and back.
+{"do":"key","keys":"F1"}
+{"do":"wait","dialog":"Keyboard shortcuts"}
+{"do":"language","code":"da","catalog":"gallery-da.json"}
+{"do":"wait","dialog":"Tastaturgenveje"}
+{"do":"language","code":"pt","made_up":true}
+{"do":"wait","dialog":"[pt] Keyboard shortcuts"}
+{"do":"language","code":"en"}
+{"do":"wait","dialog":"Keyboard shortcuts"}
+{"do":"key","keys":"F1"}
+{"do":"wait","dialog":null}
+
+# 0.5.8: the file chooser. This display has no session bus, so the portal's own failure, in words a person reads;
+# then the answers a script gives in its place.
+{"do":"click","role":"button","name":"Choose a file…"}
+{"do":"wait","role":"label","name":"picker: No file chooser is available on this desktop."}
+{"do":"picker","fail":"refused"}
+{"do":"click","role":"button","name":"Choose a file…"}
+{"do":"wait","role":"label","name":"picker: The desktop's file chooser would not open."}
+{"do":"picker","files":["/tmp/omui-qa.txt"]}
+{"do":"click","role":"button","name":"Choose a file…"}
+{"do":"wait","role":"label","name":"picked: /tmp/omui-qa.txt"}
+
 # 0.5.2's keys: `?` opens a window of its own, which has the key's release, and Escape closes it, whose release goes
 # to no window; the next key goes to the window under it. Shift+R is the upper-case R a keyboard sends.
 {"do":"key","keys":"question"}
@@ -38,6 +62,22 @@
 {"do":"wait","role":"window","name":"Keyboard shortcuts","visible":false}
 {"do":"key","keys":"<Shift>R"}
 {"do":"wait","role":"alert","name":"Reloaded","visible":true}
+{"do":"wait","role":"alert","name":"Lower-case r","visible":false}
+
+# omui's own keys: F1 lists the shortcuts in the overlay, which closes on the same key from inside it; a single key
+# acts, and is a character while a field has the keyboard (the g of example.org, typed further down).
+{"do":"key","keys":"F1"}
+{"do":"wait","dialog":"Keyboard shortcuts"}
+{"do":"shot","path":"target/qa-gallery-shortcuts.png"}
+{"do":"key","keys":"g"}
+{"do":"wait","dialog":"Keyboard shortcuts","toasts":["Reloaded"]}
+{"do":"key","keys":"F1"}
+{"do":"wait","dialog":null}
+{"do":"key","keys":"g"}
+{"do":"wait","role":"alert","name":"Single key","visible":true}
+# 0.5.8: and only with the modifiers it names: r alone is r's, where Shift+R above was not.
+{"do":"key","keys":"r"}
+{"do":"wait","role":"alert","name":"Lower-case r","visible":true}
 
 # A menu that is open has the keyboard: Down moves in it, Escape closes it, and the next key is the window's again.
 {"do":"click","role":"button","name":"Device actions"}

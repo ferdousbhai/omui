@@ -1,0 +1,6 @@
+# `close` closes every window as its close button would, and the run goes on as the app does: the gallery holds on
+# to nothing, so it ends with its last window, with status 0, and what follows is not run.
+{"do":"select","role":"list-item","name":"Dialogs"}
+{"do":"close"}
+{"do":"wait","role":"button","name":"Choose a file…","timeout_ms":100}
+{"do":"quit"}

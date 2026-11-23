@@ -37,3 +37,8 @@ The files keep Lucide's geometry. Each 2px round stroke is outlined as a filled 
 before 4.20 recolours only the fill of a symbolic icon, and the foreground colour is GTK's symbolic foreground in
 place of `currentColor`. `om-star-filled-symbolic.svg` also fills the inside of Lucide's star. The files are renamed
 with an `om-` prefix and a `-symbolic` suffix.
+
+## Dependencies
+
+omui links two crates of gtk-rs (<https://gtk-rs.org>, MIT): `gtk4` and, for the Wayland app id, `gdk4-wayland`, of the
+same release. They are dependencies, not code included in omui, and their notices come with them.

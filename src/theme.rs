@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: MIT
-//! The look: Omarchy's current theme turned into eleven semantic colours, applied as GTK CSS, and followed live.
+//! The look: Omarchy's current theme turned into eleven semantic colours, applied as GTK CSS, and followed live. The
+//! whole palette is there by name too ([`Colors`]), with a colour for text on the accent, and the corners follow
+//! Hyprland's rounding ([`crate::Rounding`]).
 //!
 //! The approach, the token set and the Omarchy mapping follow Strata (github.com/lgse/strata, MIT, src/ui/theme*), so an
 //! omui app sits beside it on an Omarchy desktop: the palette comes from `colors.toml` of the current theme, content
 //! sits on the theme's darker background, JetBrains Mono is the interface font, sizes scale from a 13 px root with the
 //! desktop's text size, and GTK's own theme is reset underneath so neither the desktop's GTK theme nor a user's
-//! `gtk.css` can reshape the widgets. Without Omarchy, Tokyo Night.
+//! `gtk.css` can reshape the widgets. Without Omarchy, the dark palette with Omarchy's fallback yellow that the
+//! Omarchy app template has.
 
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::PathBuf,
     rc::Rc,
     time::Duration,
@@ -37,22 +40,32 @@ pub struct Tokens {
     pub light: bool,
 }
 
-const TOKYO_NIGHT: &str = r##"mode = "dark"
-accent = "#7aa2f7"
-selection = "#292e42"
-muted = "#414868"
-background = "#1a1b26"
-dark_background = "#13141c"
-lighter_background = "#24283b"
-foreground = "#a9b1d6"
+/// The palette of a desktop without Omarchy: a dark surface and Omarchy's fallback yellow, the colours the
+/// Omarchy app template falls back to, so an omui app and a Qt one look alike there.
+const FALLBACK: &str = r##"mode = "dark"
+accent = "#ffd60a"
+background = "#0e0e10"
+foreground = "#e6e6e9"
+selection = "#3a3a40"
+muted = "#5c5c66"
 red = "#f7768e"
 green = "#9ece6a"
-yellow = "#e0af68""##;
+yellow = "#e0af68"
+orange = "#ff9e64"
+blue = "#7aa2f7"
+magenta = "#bb9af7"
+cyan = "#7dcfff""##;
 
 impl Tokens {
-    /// Tokyo Night, Strata's default, for a desktop without Omarchy.
+    /// The palette of a desktop without Omarchy: dark, with Omarchy's fallback yellow for the accent.
     pub fn fallback() -> Tokens {
-        Tokens::from_colors("tokyo-night", TOKYO_NIGHT).expect("the bundled palette parses")
+        Tokens::from_colors("fallback", FALLBACK).expect("the bundled palette parses")
+    }
+
+    /// The colour for text and icons drawn on the accent, `@om_accent_fg` in CSS: black or white, whichever reads
+    /// there. A theme's accent is as often light as dark, so neither the background nor a fixed white will do.
+    pub fn accent_foreground(&self) -> String {
+        on_color(&self.accent).to_owned()
     }
 
     /// Strata's `tokens_from_quattro` in its default "darker" form: the keys of an Omarchy `colors.toml` to semantic
@@ -67,11 +80,7 @@ impl Tokens {
         let text = get("foreground")?;
         let accent = get("accent")?;
         let background = get("dark_background").unwrap_or_else(|| source_background.clone());
-        let light = match values.get("mode").copied() {
-            Some("light") => true,
-            Some("dark") => false,
-            _ => luminance(&source_background) > 0.45,
-        };
+        let light = mode(&values).unwrap_or_else(|| luminance(&source_background) > 0.45);
         // A theme without its own green or yellow gets a fixed hue pulled a quarter of the way to its text colour, so
         // the two sit in the palette instead of on top of it.
         let toned = |hue: &str| blend(hue, &text, 0.25);
@@ -110,8 +119,114 @@ impl Tokens {
     }
 }
 
-/// The `key = "value"` lines of an Omarchy `colors.toml`, which is all that file holds: no tables, no escapes. Reading
-/// them here spares every app a TOML parser.
+/// Whether the theme says it is light: its `mode`, or the `theme_type` older themes have. None when it says neither.
+fn mode(values: &HashMap<&str, &str>) -> Option<bool> {
+    ["mode", "theme_type"]
+        .iter()
+        .find_map(|key| match values.get(key).copied() {
+            Some("light") => Some(true),
+            Some("dark") => Some(false),
+            _ => None,
+        })
+}
+
+/// Black or white, whichever has the more contrast with `color` (the crossover of the WCAG contrast ratio).
+fn on_color(color: &str) -> &'static str {
+    if luminance(color) > 0.179 { "#000000" } else { "#ffffff" }
+}
+
+/// The names every theme answers to in [`Colors`], whatever its file has: Omarchy's own keys.
+const STANDARD: [&str; 12] = [
+    "accent",
+    "background",
+    "foreground",
+    "selection",
+    "muted",
+    "red",
+    "green",
+    "yellow",
+    "orange",
+    "blue",
+    "magenta",
+    "cyan",
+];
+
+/// Older and hand-made themes name some colours differently. Each key takes the first of its other names the theme
+/// has, in the order `omarchy-theme-color` (Omarchy's own resolver) tries them.
+const ALIASES: [&[&str]; 11] = [
+    &["background", "bg", "color0"],
+    &["foreground", "fg", "color7"],
+    &["red", "color1"],
+    &["green", "color2"],
+    &["yellow", "color3"],
+    &["blue", "color4"],
+    &["magenta", "color5", "purple"],
+    &["cyan", "color6"],
+    &["muted", "color8", "dark_foreground"],
+    &["selection", "selection_background", "color8", "background"],
+    &["orange", "yellow"],
+];
+
+/// The theme's whole palette: every colour of its `colors.toml` by its key, each `#rrggbb`. [`Tokens`] are the
+/// eleven a stylesheet is written against; this is for what they leave out, such as a chart's series or a terminal's
+/// sixteen colours (`color0` to `color15`).
+///
+/// In CSS each is the named colour `@om_color_<key>`: `@om_color_blue`, `@om_color_selection`, `@om_color_color4`.
+/// The standard names (`accent`, `background`, `foreground`, `selection`, `muted`, `red`, `green`, `yellow`,
+/// `orange`, `blue`, `magenta`, `cyan`) are always there: a theme that lacks one answers with another of its names
+/// for that colour (`color1` for `red`), and failing that with the fallback palette's. A stylesheet that names any other key
+/// only works with the themes that have it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Colors {
+    values: BTreeMap<String, String>,
+}
+
+impl Colors {
+    /// The colours of an Omarchy `colors.toml`. A value that is not a hex colour (`mode`) is left out.
+    pub fn parse(colors_toml: &str) -> Colors {
+        let values = parse_lines(colors_toml)
+            .into_iter()
+            .filter(|(key, _)| !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
+            .filter_map(|(key, value)| Some((key.to_owned(), canonical(value)?)))
+            .collect();
+        Colors { values }
+    }
+
+    /// The colour named `key` as `#rrggbb`: the theme's own, else for a standard name the theme's other name for it
+    /// or the fallback palette's. None for a name that is neither the theme's nor standard.
+    pub fn get(&self, key: &str) -> Option<&str> {
+        if let Some(value) = self.values.get(key) {
+            return Some(value);
+        }
+        let other = ALIASES
+            .iter()
+            .filter(|names| names[0] == key)
+            .flat_map(|names| &names[1..])
+            .find_map(|name| self.values.get(*name));
+        other.map(String::as_str).or_else(|| standard_fallback(key))
+    }
+
+    /// Every colour by name, sorted: the theme's keys and the standard names.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
+        let mut names: Vec<&str> = self.values.keys().map(String::as_str).collect();
+        names.extend(STANDARD.iter().filter(|name| !self.values.contains_key(**name)));
+        names.sort_unstable();
+        names.into_iter().filter_map(|name| Some((name, self.get(name)?)))
+    }
+}
+
+/// The fallback palette's colour for a standard name.
+fn standard_fallback(key: &str) -> Option<&'static str> {
+    // The bundled palette writes each colour as `key = "#rrggbb"`, so the value is in it as it is.
+    STANDARD
+        .contains(&key)
+        .then(|| parse_lines(FALLBACK).get(key).copied())
+        .flatten()
+}
+
+/// The `key = value` lines of an Omarchy `colors.toml`, which is all that file holds: no tables, no escapes. Reading
+/// them here spares every app a TOML parser. Themes write a colour quoted, bare, or with a comment after it, and all
+/// three are read: `accent = "#7aa2f7"`, `accent = #7aa2f7`, `accent = '#7aa2f7' # blue`.
 fn parse_lines(source: &str) -> HashMap<&str, &str> {
     source
         .lines()
@@ -125,9 +240,12 @@ fn parse_lines(source: &str) -> HashMap<&str, &str> {
             let value = match value.chars().next() {
                 // A quoted value ends at its quote: colours start with `#`, so a comment cannot be cut off first.
                 Some(quote @ ('"' | '\'')) => value[1..].split_once(quote)?.0,
+                // A bare colour starts with the `#` that would otherwise start a comment, and ends at the first
+                // space: what follows it is one.
+                Some('#') => value.split_whitespace().next().filter(|colour| colour.len() > 1)?,
                 _ => value.split('#').next().unwrap_or_default().trim_end(),
             };
-            Some((key, value))
+            (!value.is_empty()).then_some((key, value))
         })
         .collect()
 }
@@ -208,11 +326,21 @@ pub fn omarchy_state_dir() -> PathBuf {
     home().join(".local/state/omarchy/current")
 }
 
-fn read_omarchy() -> Option<Tokens> {
+fn read_omarchy() -> Option<(Tokens, Colors)> {
     let state = omarchy_state_dir();
     let name = std::fs::read_to_string(state.join("theme.name")).unwrap_or_else(|_| "omarchy".into());
     let colors = std::fs::read_to_string(state.join("theme/colors.toml")).ok()?;
-    Tokens::from_colors(name.trim(), &colors)
+    let mut tokens = Tokens::from_colors(name.trim(), &colors)?;
+    // A theme that does not say which it is in its colours says it with a file beside them, as Omarchy reads it.
+    if mode(&parse_lines(&colors)).is_none() && state.join("theme/light.mode").exists() {
+        tokens.light = true;
+    }
+    Some((tokens, Colors::parse(&colors)))
+}
+
+/// The palette of a desktop without Omarchy, its tokens and its colours by name.
+fn fallback() -> (Tokens, Colors) {
+    (Tokens::fallback(), Colors::parse(FALLBACK))
 }
 
 /// Strata waits 75 ms; a theme switch here is several renames and a rewrite of theme.name.
@@ -221,16 +349,19 @@ const DEBOUNCE: Duration = Duration::from_millis(150);
 /// Omarchy's palette, followed live. It needs a main loop but no display, so the reload path is tested without one.
 struct Palette {
     tokens: RefCell<Tokens>,
+    colors: RefCell<Colors>,
     monitors: RefCell<Vec<gio::FileMonitor>>,
     pending: RefCell<Option<glib::SourceId>>,
     changed: Box<dyn Fn(&Tokens)>,
 }
 
 impl Palette {
-    /// `changed` runs after a switch, and only when the tokens differ.
+    /// `changed` runs after a switch, and only when the tokens or the palette differ.
     fn follow(changed: impl Fn(&Tokens) + 'static) -> Rc<Self> {
+        let (tokens, colors) = read_omarchy().unwrap_or_else(fallback);
         let palette = Rc::new(Self {
-            tokens: RefCell::new(read_omarchy().unwrap_or_else(Tokens::fallback)),
+            tokens: RefCell::new(tokens),
+            colors: RefCell::new(colors),
             monitors: RefCell::new(Vec::new()),
             pending: RefCell::new(None),
             changed: Box::new(changed),
@@ -242,12 +373,13 @@ impl Palette {
     fn reload(&self) {
         // Omarchy's state can be unreadable mid-switch: the palette stays until it can be read again. Only a desktop
         // with no Omarchy state at all gets the fallback.
-        let Some(next) = read_omarchy().or_else(|| (!omarchy_state_dir().exists()).then(Tokens::fallback)) else {
+        let Some((tokens, colors)) = read_omarchy().or_else(|| (!omarchy_state_dir().exists()).then(fallback)) else {
             return;
         };
-        if next != *self.tokens.borrow() {
-            self.tokens.replace(next.clone());
-            (self.changed)(&next);
+        if tokens != *self.tokens.borrow() || colors != *self.colors.borrow() {
+            self.tokens.replace(tokens.clone());
+            self.colors.replace(colors);
+            (self.changed)(&tokens);
         }
     }
 
@@ -321,6 +453,7 @@ pub struct Theme {
     base: gtk::CssProvider,
     tokens_css: gtk::CssProvider,
     palette: Rc<Palette>,
+    rounding: Rc<crate::Rounding>,
     /// Each with the id its anchor's destroy handler removes it by.
     listeners: RefCell<Vec<(u64, Listener)>>,
     next_listener: Cell<u64>,
@@ -337,21 +470,39 @@ impl Theme {
         if let Some(theme) = Theme::get() {
             return theme;
         }
+        let (hyprctl, events) = crate::Rounding::session();
+        Self::install_following(display, app_css, hyprctl, events)
+    }
+
+    /// [`Theme::install`] with the `hyprctl` to ask for the rounding and the event socket to hear of its changes
+    /// on, in place of the session's own: for a test of an app's window, with a script and a socket of its own (or
+    /// neither, for square corners whatever desktop the test is run on).
+    pub fn install_following(
+        display: &gdk::Display,
+        app_css: &str,
+        hyprctl: Option<PathBuf>,
+        events: Option<PathBuf>,
+    ) -> Rc<Theme> {
+        if let Some(theme) = Theme::get() {
+            return theme;
+        }
         crate::icons::register();
         gtk::IconTheme::for_display(display).add_resource_path(crate::icons::RESOURCE_PATH);
         let theme = Rc::new_cyclic(|weak: &std::rc::Weak<Theme>| {
-            let weak = weak.clone();
+            let (palette, rounding) = (weak.clone(), weak.clone());
             Theme {
                 base: gtk::CssProvider::new(),
                 tokens_css: gtk::CssProvider::new(),
-                palette: Palette::follow(move |tokens| {
-                    if let Some(theme) = weak.upgrade() {
-                        theme.apply();
-                        // Cloned out first: a listener may add or drop listeners.
-                        let listeners: Vec<_> = theme.listeners.borrow().iter().map(|(_, f)| f.clone()).collect();
-                        for listener in listeners {
-                            listener(tokens);
-                        }
+                palette: Palette::follow(move |_| {
+                    if let Some(theme) = palette.upgrade() {
+                        theme.changed();
+                    }
+                }),
+                // Hyprland answers after the first frame at the earliest: the window opens square, as most are, and
+                // takes its rounding a moment later.
+                rounding: crate::Rounding::follow(hyprctl, events, move |_| {
+                    if let Some(theme) = rounding.upgrade() {
+                        theme.changed();
                     }
                 }),
                 listeners: RefCell::new(Vec::new()),
@@ -385,29 +536,69 @@ impl Theme {
             });
         }
         theme.apply();
-        CURRENT.with(|current| current.replace(Some(theme.clone())));
+        let _ = CURRENT.try_with(|current| current.replace(Some(theme.clone())));
         theme
     }
 
-    /// The installed theme, on the main thread.
+    /// The installed theme, on the main thread. None once the thread is ending: a destroy handler that runs as the
+    /// process ends, after the thread's state is gone, finds no theme rather than a panic.
     pub fn get() -> Option<Rc<Theme>> {
-        CURRENT.with(|current| current.borrow().clone())
+        CURRENT.try_with(|current| current.borrow().clone()).ok().flatten()
     }
 
     pub fn tokens(&self) -> Tokens {
         self.palette.tokens.borrow().clone()
     }
 
-    /// Runs `f` after each theme switch that changes the tokens, for what CSS cannot reach (a web view, a Cairo
+    /// The theme's whole palette, for the colours the tokens leave out.
+    pub fn colors(&self) -> Colors {
+        self.palette.colors.borrow().clone()
+    }
+
+    /// One colour of the palette by its key in `colors.toml` (`"blue"`, `"selection"`, `"color4"`), as `#rrggbb`:
+    /// [`Colors::get`].
+    pub fn color(&self, key: &str) -> Option<String> {
+        self.palette.colors.borrow().get(key).map(str::to_owned)
+    }
+
+    /// The colour for what is drawn on the accent: [`Tokens::accent_foreground`].
+    pub fn accent_foreground(&self) -> String {
+        self.tokens().accent_foreground()
+    }
+
+    /// Hyprland's window rounding in pixels, which every corner in `omui.css` follows; 0 away from Hyprland. In CSS
+    /// it is `var(--om-radius)`, with `var(--om-radius-small)` (4 at most) for small things inside a panel.
+    pub fn radius(&self) -> i32 {
+        self.rounding.radius()
+    }
+
+    /// The palette or the rounding changed: the stylesheet is written anew and the listeners told.
+    fn changed(&self) {
+        self.apply();
+        let tokens = self.tokens();
+        // Cloned out first: a listener may add or drop listeners.
+        let listeners: Vec<_> = self.listeners.borrow().iter().map(|(_, f)| f.clone()).collect();
+        for listener in listeners {
+            listener(&tokens);
+        }
+    }
+
+    /// Runs `f` after each theme switch that changes the tokens or the palette, and when Hyprland's rounding
+    /// changes, for what CSS cannot reach (a web view, a Cairo
     /// drawing). The listener lives as long as `anchor`; `f` must not hold `anchor` strongly, or neither is freed.
     pub fn on_change<W: IsA<gtk::Widget>>(self: &Rc<Self>, anchor: &W, f: impl Fn(&Tokens) + 'static) {
         let id = self.next_listener.replace(self.next_listener.get() + 1);
         self.listeners.borrow_mut().push((id, Rc::new(f)));
         let weak = Rc::downgrade(self);
         anchor.connect_destroy(move |_| {
-            if let Some(theme) = weak.upgrade() {
-                theme.listeners.borrow_mut().retain(|(listener, _)| *listener != id);
-            }
+            // Dropped once the list is let go: what the listener held may be destroyed as it goes, and come back here.
+            // As the process ends the theme may be going itself, with the list taken, and there is nothing to remove.
+            let removed = weak.upgrade().and_then(|theme| {
+                let mut listeners = theme.listeners.try_borrow_mut().ok()?;
+                let at = listeners.iter().position(|(listener, _)| *listener == id)?;
+                Some(listeners.remove(at))
+            });
+            drop(removed);
         });
     }
 
@@ -444,7 +635,9 @@ impl Theme {
             if settings.find_property("gtk-interface-color-scheme").is_some() {
                 set_enum(&settings, "gtk-interface-color-scheme", scheme);
             } else {
-                settings.set_gtk_application_prefer_dark_theme(!t.light);
+                // By name: the typed setter is deprecated in the bindings of an app built for GTK 4.20, which takes
+                // the branch above anyway.
+                settings.set_property("gtk-application-prefer-dark-theme", !t.light);
             }
             settings.set_gtk_font_name(Some(&format!("JetBrains Mono {root}px")));
         }
@@ -465,11 +658,29 @@ impl Theme {
             .iter()
             .map(|(name, value)| format!("@define-color om_{name} {value};\n"))
             .collect();
+        css.push_str(&format!("@define-color om_accent_fg {};\n", t.accent_foreground()));
+        for (name, value) in self.palette.colors.borrow().iter() {
+            css.push_str(&format!("@define-color om_color_{name} {value};\n"));
+        }
+        css.push_str(&radius_css(self.radius()));
         css.push_str(&format!(
             "window, popover, popover.background, tooltip {{ font-size: {root}px; }}\n"
         ));
         self.tokens_css.load_from_string(&css);
     }
+}
+
+/// The corners, as CSS variables every node inherits from the top of its tree: a window, a popover's own, a
+/// tooltip's. Worked out here rather than with `calc()` in the stylesheet, where a radius less a border's width
+/// would go below nothing on a square desktop.
+fn radius_css(radius: i32) -> String {
+    let radius = radius.max(0);
+    format!(
+        ":root {{ --om-radius: {radius}px; --om-radius-inner: {}px; --om-radius-small: {}px; --om-radius-tiny: {}px; }}\n",
+        (radius - 1).max(0),
+        radius.min(4),
+        radius.min(2),
+    )
 }
 
 /// Sets an enum property by its nick, skipping properties this GTK lacks (Strata's helper).
@@ -488,7 +699,11 @@ mod tests {
 
     #[test]
     fn content_sits_on_the_dark_background() {
-        let t = Tokens::from_colors("tokyo-night", TOKYO_NIGHT).unwrap();
+        let tokyo_night = "mode = \"dark\"\naccent = \"#7aa2f7\"\nselection = \"#292e42\"\nmuted = \"#414868\"\n\
+                           background = \"#1a1b26\"\ndark_background = \"#13141c\"\n\
+                           lighter_background = \"#24283b\"\nforeground = \"#a9b1d6\"\nred = \"#f7768e\"\n\
+                           green = \"#9ece6a\"\nyellow = \"#e0af68\"";
+        let t = Tokens::from_colors("tokyo-night", tokyo_night).unwrap();
         assert_eq!((t.background.as_str(), t.surface.as_str()), ("#13141c", "#13141c"));
         assert_eq!(
             (t.text.as_str(), t.accent.as_str(), t.border.as_str()),
@@ -580,6 +795,147 @@ mod tests {
     }
 
     #[test]
+    fn a_colour_is_read_quoted_bare_or_with_a_comment() {
+        let source = "accent = #7aa2f7\nbackground = #1a1b26 # night\nforeground = \"#a9b1d6\" # text\n\
+                      red = '#f7768e'   # quoted the other way\ngreen = #00ff00#no space\nblue=#7AA2F7\n\
+                      mode = light # bare word\nempty = # nothing\n";
+        let values = parse_lines(source);
+        assert_eq!(values.get("accent"), Some(&"#7aa2f7"), "a bare colour is not a comment");
+        assert_eq!(values.get("background"), Some(&"#1a1b26"));
+        assert_eq!(values.get("foreground"), Some(&"#a9b1d6"));
+        assert_eq!(values.get("red"), Some(&"#f7768e"));
+        assert_eq!(values.get("blue"), Some(&"#7AA2F7"));
+        assert_eq!(values.get("mode"), Some(&"light"));
+        // A `#` with no colour after it is a comment, and a line with no value is no entry.
+        assert_eq!(values.get("empty"), None);
+        let tokens = Tokens::from_colors("bare", source).expect("bare colours make a palette");
+        assert_eq!(
+            (tokens.accent.as_str(), tokens.text.as_str(), tokens.danger.as_str()),
+            ("#7aa2f7", "#a9b1d6", "#f7768e")
+        );
+        assert!(tokens.light, "the mode is read bare too");
+        // What is not a colour is not one, however it is written.
+        assert_eq!(
+            Colors::parse(source).get("green"),
+            Some("#9ece6a"),
+            "the fallback palette's, for a value that is none"
+        );
+    }
+
+    #[test]
+    fn the_whole_palette_is_there_by_name() {
+        let colors = Colors::parse(
+            "mode = \"dark\"\naccent = \"#112233\"\nbg = #fafafa # paper\nforeground = '#202020'\n\
+             color1 = \"#aa0000\"\ncolor4 = #0000AA\ncolor8 = #808080\nteal = #0aa\nbad-key = #123456\n",
+        );
+        assert_eq!(colors.get("accent"), Some("#112233"));
+        assert_eq!(colors.get("teal"), Some("#00aaaa"), "a key of the theme's own, in full");
+        assert_eq!(colors.get("color4"), Some("#0000aa"));
+        // A standard name the theme lacks is its other name for the colour, in Omarchy's order.
+        assert_eq!(colors.get("background"), Some("#fafafa"));
+        assert_eq!(colors.get("red"), Some("#aa0000"));
+        assert_eq!(colors.get("blue"), Some("#0000aa"));
+        assert_eq!(colors.get("muted"), Some("#808080"));
+        assert_eq!(colors.get("selection"), Some("#808080"));
+        // With no other name either, the fallback palette's; a name that is neither the theme's nor standard is no colour.
+        assert_eq!(colors.get("cyan"), Some("#7dcfff"));
+        assert_eq!(colors.get("green"), Some("#9ece6a"));
+        assert_eq!(colors.get("orange"), Some("#ff9e64"));
+        assert_eq!(
+            (colors.get("mode"), colors.get("mauve"), colors.get("bad-key")),
+            (None, None, None)
+        );
+        let names: Vec<&str> = colors.iter().map(|(name, _)| name).collect();
+        for name in STANDARD.iter().chain(&["bg", "color1", "color4", "color8", "teal"]) {
+            assert!(names.contains(name), "{name}");
+        }
+        assert!(names.is_sorted() && !names.contains(&"mode"));
+        // A theme with a yellow and no orange has its yellow for both, as Omarchy resolves it.
+        let yellow = Colors::parse("yellow = #e0af68");
+        assert_eq!(
+            (yellow.get("orange"), yellow.get("yellow")),
+            (Some("#e0af68"), Some("#e0af68"))
+        );
+        // The fallback palette answers to every standard name, with its own colour for each: the template's.
+        let (tokens, fallback) = fallback();
+        assert_eq!(
+            (
+                fallback.get("accent"),
+                fallback.get("background"),
+                fallback.get("foreground")
+            ),
+            (Some("#ffd60a"), Some("#0e0e10"), Some("#e6e6e9"))
+        );
+        assert_eq!(
+            (fallback.get("blue"), fallback.get("selection"), fallback.get("orange")),
+            (Some("#7aa2f7"), Some("#3a3a40"), Some("#ff9e64"))
+        );
+        for name in STANDARD {
+            assert!(fallback.values.contains_key(name), "{name} is the fallback's own");
+        }
+        assert_eq!(
+            (tokens.accent.as_str(), tokens.background.as_str()),
+            ("#ffd60a", "#0e0e10")
+        );
+        assert_eq!(tokens.accent_foreground(), "#000000", "black reads on the yellow");
+        assert!(!tokens.light);
+        assert_eq!(Colors::default().get("orange"), Some("#ff9e64"));
+    }
+
+    #[test]
+    fn text_on_the_accent_is_black_or_white_by_its_luminance() {
+        let on = |accent: &str| {
+            let source = format!("background = #101010\nforeground = #f0f0f0\naccent = {accent}\n");
+            Tokens::from_colors("x", &source).unwrap().accent_foreground()
+        };
+        assert_eq!(on("#ffd60a"), "#000000", "Omarchy's yellow");
+        assert_eq!(on("#7aa2f7"), "#000000", "Tokyo Night's blue is a light one");
+        assert_eq!(on("#112233"), "#ffffff");
+        assert_eq!(on("#1e66f5"), "#ffffff", "Catppuccin Latte's blue");
+        for accent in ["#ffd60a", "#7aa2f7", "#112233", "#1e66f5", "#808080", "#767676"] {
+            assert!(contrast(&on(accent), accent) >= 4.5, "{accent}");
+        }
+    }
+
+    #[test]
+    fn the_corners_follow_the_rounding_and_small_ones_stop_at_four() {
+        assert_eq!(
+            radius_css(0),
+            ":root { --om-radius: 0px; --om-radius-inner: 0px; --om-radius-small: 0px; --om-radius-tiny: 0px; }\n"
+        );
+        assert_eq!(
+            radius_css(10),
+            ":root { --om-radius: 10px; --om-radius-inner: 9px; --om-radius-small: 4px; --om-radius-tiny: 2px; }\n"
+        );
+        assert!(radius_css(3).contains("--om-radius-small: 3px; --om-radius-tiny: 2px"));
+    }
+
+    /// A corner in the stylesheet is the rounding's, or a circle's: no pixels of its own.
+    #[test]
+    fn every_radius_in_the_stylesheet_comes_from_the_rounding() {
+        let mut found = 0;
+        for line in OMUI_CSS.lines() {
+            let mut rest = line;
+            while let Some(at) = rest.find("border-radius:") {
+                let value = rest[at + "border-radius:".len()..]
+                    .split([';', '}'])
+                    .next()
+                    .unwrap()
+                    .trim();
+                found += 1;
+                for part in value.split_whitespace() {
+                    assert!(
+                        part == "0" || part == "100%" || part == "999px" || part.starts_with("var(--om-radius"),
+                        "a corner of its own: {line}"
+                    );
+                }
+                rest = &rest[at + 1..];
+            }
+        }
+        assert!(found > 30, "the stylesheet's corners were looked at");
+    }
+
+    #[test]
     fn lines_are_read_as_keys_and_values() {
         let values = parse_lines(
             "# a comment\n\naccent = \"#7aa2f7\"  # trailing\n  foreground='#a9b1d6'\nmode = dark # bare\n\
@@ -624,25 +980,25 @@ mod tests {
     /// No display is involved.
     #[test]
     fn a_theme_swapped_by_mv_is_followed() {
-        let scratch = std::env::temp_dir().join(format!("omui-theme-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&scratch);
-        // SAFETY: no other test in this binary reads or writes the environment, and this runs before this test starts
-        // any glib thread.
+        // Taken first: the tests that hold it are the ones that read the environment or start glib's threads.
+        let _main = crate::testing::main_loop();
+        let scratch = crate::testing::temp_dir("theme");
+        // SAFETY: the tests that read the environment hold the main loop, as this one does.
         unsafe { std::env::set_var("HOME", &scratch) };
         let state = omarchy_state_dir();
         assert_eq!(state, scratch.join(".local/state/omarchy/current"));
         write_theme(&state.join("theme"), "#101010");
         std::fs::write(state.join("theme.name"), "night\n").unwrap();
 
-        // glib's timeouts and file monitors report on the default context; no other test runs it.
+        // glib's timeouts and file monitors report on the default context, which this test has to itself.
         let context = glib::MainContext::default();
-        let _guard = context.acquire().unwrap();
         let seen = Rc::new(RefCell::new(Vec::<String>::new()));
         let palette = Palette::follow({
             let seen = seen.clone();
             move |tokens| seen.borrow_mut().push(format!("{} {}", tokens.name, tokens.background))
         });
         assert_eq!(palette.tokens.borrow().background, "#101010");
+        assert_eq!(palette.colors.borrow().get("accent"), Some("#3366cc"));
         // Runs the loop until `changes` switches have been reported, or for `quiet` when none is expected.
         let settle = |changes: usize, quiet: Duration| {
             let deadline = std::time::Instant::now()
@@ -680,10 +1036,17 @@ mod tests {
         assert_eq!(seen.borrow().len(), 2);
         assert_eq!(palette.tokens.borrow().background, "#202020");
 
-        // No Omarchy state at all: Tokyo Night.
+        // No Omarchy state at all: the fallback palette.
         std::fs::remove_dir_all(scratch.join(".local/state/omarchy")).unwrap();
         settle(3, Duration::ZERO);
         assert_eq!(*palette.tokens.borrow(), Tokens::fallback());
+        assert_eq!(palette.colors.borrow().get("orange"), Some("#ff9e64"));
+
+        // A theme that says it is light with a file beside its colours, as some of Omarchy's do.
+        write_theme(&state.join("theme"), "#404040");
+        std::fs::write(state.join("theme/light.mode"), "").unwrap();
+        settle(4, Duration::ZERO);
+        assert!(palette.tokens.borrow().light, "a dark grey that the theme calls light");
         std::fs::remove_dir_all(&scratch).unwrap();
     }
 }

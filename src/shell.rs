@@ -141,7 +141,8 @@ impl Shell {
             });
             widget.append(&button);
         }
-        let close = icons::icon_button(icons::name::CLOSE, "Dismiss");
+        let close = icons::icon_button(icons::name::CLOSE, "");
+        crate::i18n::bind_tooltip(&close, "Dismiss");
         let (shell, toast_widget) = (Rc::downgrade(self), widget.downgrade());
         close.connect_clicked(move |_| {
             if let (Some(shell), Some(toast)) = (shell.upgrade(), toast_widget.upgrade()) {

@@ -168,7 +168,9 @@ pub fn spinner() -> gtk::Spinner {
     // Turning only while it is on screen.
     spinner.connect_map(|spinner| spinner.start());
     spinner.connect_unmap(|spinner| spinner.stop());
-    spinner.update_property(&[gtk::accessible::Property::Label("Loading")]);
+    crate::i18n::bind(&spinner, |spinner| {
+        spinner.update_property(&[gtk::accessible::Property::Label(&crate::i18n::tr("Loading"))]);
+    });
     spinner
 }
 

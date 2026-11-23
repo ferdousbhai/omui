@@ -47,13 +47,15 @@ for _ in {1..50}; do
   sleep 0.1
 done
 
+# OMUI_QA_SCRIPT names the script, so that the paths it gives (a catalog, a picker's files) are read beside it.
 # In the background, waited for: bash runs a trap only once the foreground command ends, and `timeout` puts the app in
 # a process group of its own, which Ctrl-C does not reach. Killing `timeout` stops the app with it.
 status=0
-env -u WAYLAND_DISPLAY -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u GTK_THEME \
+env -u WAYLAND_DISPLAY -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u GTK_THEME -u HYPRLAND_INSTANCE_SIGNATURE \
   HOME="$root/home" XDG_CONFIG_HOME="$root/config" XDG_STATE_HOME="$root/state" XDG_DATA_HOME="$root/data" \
   XDG_CACHE_HOME="$root/cache" XDG_RUNTIME_DIR="$root/runtime" \
   GDK_BACKEND=broadway BROADWAY_DISPLAY=":$display" OMUI_QA=1 OMUI_QA_INPUT="127.0.0.1:$port" OMUI_QA_FD=3 \
+  OMUI_QA_SCRIPT="$script" \
   timeout "${OMUI_QA_TIMEOUT:-120}" "$app" <"$script" 3>"$root/answers" &
 app_pid=$!
 wait "$app_pid" || status=$?

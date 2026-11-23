@@ -38,8 +38,23 @@ cd "$here/.."
 # Cargo and rustup keep their own homes under the real one.
 export CARGO_HOME=${CARGO_HOME:-$HOME/.cargo} RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}
 # GTK_A11Y=test: what a widget tells a screen reader is kept for the tests to read, and no accessibility bus is sought.
-env -u WAYLAND_DISPLAY -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u GTK_THEME \
+# GLib writes its messages to stderr itself, past the test harness's capture: a copy is kept to read afterwards.
+status=0
+{ env -u WAYLAND_DISPLAY -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS -u GTK_THEME -u HYPRLAND_INSTANCE_SIGNATURE \
   HOME="$root/home" XDG_CONFIG_HOME="$root/config" XDG_STATE_HOME="$root/state" XDG_DATA_HOME="$root/data" \
   XDG_CACHE_HOME="$root/cache" XDG_RUNTIME_DIR="$root/runtime" GTK_A11Y=test \
   GDK_BACKEND=broadway BROADWAY_DISPLAY=":$display" \
-  cargo test --all-features "$@" -- --ignored
+  cargo test --all-features "$@" -- --ignored 2>&1 1>&3 3>&- | tee "$root/stderr" >&2
+} 3>&1 || status=$?
+(( status == 0 )) || exit "$status"
+
+# A GLib warning or critical is a fault of omui's, as an app's QA counts it (dev/qa.sh): GTK's own, of a widget omui
+# misused, among them. A test that means to cause one catches it itself, so whatever reaches stderr fails the run.
+# Only broadway's own frame bookkeeping is let pass (qa.rs, PAGE_FRAMES): GDK says it now and then on this display
+# whatever the app does, as its frame clock and the display's timing disagree.
+if grep -E -- '-(CRITICAL|WARNING) \*\*' "$root/stderr" \
+  | grep -Ev 'Gdk-WARNING \*\*: [0-9:.]+: (Duplicate call to )?gdk_frame_timings_submitted\(\)' >"$root/logged"; then
+  echo "gtk-tests: GLib logged these while the tests ran:" >&2
+  cat "$root/logged" >&2
+  exit 1
+fi
