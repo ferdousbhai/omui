@@ -3,6 +3,8 @@ name: Test
 on:
   pull_request:
   push:
+    # A tag names a commit a branch has already had tested.
+    branches: ['**']
 
 permissions:
   contents: read
@@ -16,6 +18,9 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      # Nothing here reads debug information, and a seventh of the build was writing it.
+      CARGO_PROFILE_DEV_DEBUG: 0
     steps:
       - name: Install what omui builds and tests with
         # glib2 has glib-compile-resources, which the build needs; gtk4 has the broadway display the GTK tests run
@@ -25,6 +30,19 @@ jobs:
           ttf-jetbrains-mono
 
       - uses: actions/checkout@v4
+
+      - name: Name what the dependencies were built with
+        id: built-with
+        run: echo "versions=$(pacman -Q rust gtk4 glib2 pango cairo gdk-pixbuf2 graphene | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the built dependencies
+        # Half of a run was building gtk4 and what it stands on, twice: once for clippy and once for the tests. They
+        # are kept until the lock file, the compiler or Arch's GTK changes; omui itself is built anew each time, its
+        # sources being newer than what was kept.
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: target-${{ steps.built-with.outputs.versions }}-${{ hashFiles('Cargo.lock') }}
 
       - name: Set up a user and a locale like a desktop's
         # The tests write under a home of their own, as an ordinary user does; and the container generates no locale,
