@@ -59,6 +59,7 @@ pub mod name {
     pub const LOCK: &str = "om-lock-symbolic";
     pub const MAIL: &str = "om-mail-symbolic";
     pub const MENU: &str = "om-menu-symbolic";
+    pub const MICROPHONE: &str = "om-mic-symbolic";
     pub const MORE: &str = "om-ellipsis-vertical-symbolic";
     pub const NEW_FOLDER: &str = "om-folder-plus-symbolic";
     pub const OFFLINE: &str = "om-cloud-off-symbolic";
@@ -136,6 +137,7 @@ pub mod name {
         LOCK,
         MAIL,
         MENU,
+        MICROPHONE,
         MORE,
         NEW_FOLDER,
         OFFLINE,

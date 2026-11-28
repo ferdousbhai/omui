@@ -63,6 +63,7 @@ const ICONS: &[(&str, Draw)] = &[
     ("maximize", Draw::Outline),
     ("menu", Draw::Outline),
     ("message-circle", Draw::Outline),
+    ("mic", Draw::Outline),
     ("minus", Draw::Outline),
     ("monitor", Draw::Outline),
     ("panel-left", Draw::Outline),

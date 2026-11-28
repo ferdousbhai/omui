@@ -451,7 +451,7 @@ dependencies = [
 
 [[package]]
 name = "omui"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "gdk4-wayland",
  "glib-build-tools",

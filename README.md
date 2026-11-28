@@ -91,7 +91,7 @@ the Lucide icons: ship [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)'s two en
 | `tr`, `trf`, `trn`, `trnf`, `tr!`, `trn!`, `i18n::*`, `Translator` | Every string in Omarchy's language, followed live: catalogs, plurals, text bound to a widget, numbers and dates, and the test that keeps the catalogs in step with the sources |
 | `Keys`, `on_key`, `quit_keys`, `text_has_focus`, `ShortcutOverlay`, `ShortcutSection` | Single keys that are characters while a field has the keyboard, the keys that quit, and the overlay that lists an app's shortcuts |
 | `FilePicker`, `PortalFilePicker`, `FakeFilePicker`, `PickOptions`, `FileFilter`, `PickError`, `PickDetail` | The desktop portal's open and save dialogs, behind a trait a test can fake |
-| `icons::name::*`, `icon`, `icon_button`, `data_uri` | 74 bundled Lucide icons as GTK symbolic icons |
+| `icons::name::*`, `icon`, `icon_button`, `data_uri` | 75 bundled Lucide icons as GTK symbolic icons |
 | `icon_menu_button` | A menu button drawn as an icon button: a header bar's main menu |
 | `Shell`, `Toast`, `header`, `header_without_title`, `Title`, `claim_titlebar` | The window's overlay with toasts, and its header bar |
 | `Dialog`, `WeakDialog`, `confirm`, `confirmf`, `about`, `dialog_open`, `Appearance` | A dialog drawn inside its window, the question most of them are, an About dialog, and whether one is open |
